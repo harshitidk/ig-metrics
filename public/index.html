@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>IG Metrics</title>
+<style>
+  :root {
+    --black: #000;
+    --white: #fff;
+    --g1: #111;
+    --g2: #333;
+    --g3: #666;
+    --g4: #999;
+    --g5: #ccc;
+    --g6: #e5e5e5;
+    --g7: #f5f5f5;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--white);
+    color: var(--g1);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .app {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 24px 24px 40px;
+  }
+  header { margin-bottom: 20px; }
+  h1 {
+    font-size: 22px;
+    letter-spacing: 0.02em;
+    margin: 0;
+    font-weight: 700;
+  }
+  .subtitle {
+    color: var(--g4);
+    margin: 2px 0 0;
+    font-size: 13px;
+  }
+
+  .layout {
+    display: flex;
+    gap: 28px;
+    align-items: flex-start;
+  }
+  .results-pane { flex: 1 1 auto; min-width: 0; }
+  .control-pane {
+    flex: 0 0 360px;
+    max-width: 360px;
+    position: sticky;
+    top: 24px;
+    max-height: calc(100vh - 48px);
+    overflow-y: auto;
+    padding-right: 4px;
+  }
+
+  .micro {
+    display: block;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--g4);
+    margin: 0 0 8px;
+  }
+  section.panel { margin-bottom: 22px; }
+
+  textarea {
+    width: 100%;
+    min-height: 96px;
+    padding: 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    border: 1px solid var(--g6);
+    border-radius: 6px;
+    resize: vertical;
+    color: var(--g1);
+    background: var(--white);
+  }
+  textarea:focus { outline: none; border-color: var(--g2); }
+  textarea::placeholder { color: var(--g5); }
+
+  /* field picker */
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+  .toolbar input[type="text"] {
+    flex: 1;
+    min-width: 100px;
+    padding: 8px 10px;
+    border: 1px solid var(--g6);
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: inherit;
+  }
+  .toolbar input[type="text"]:focus { outline: none; border-color: var(--g2); }
+  .link-btn {
+    background: none;
+    border: none;
+    color: var(--g3);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    padding: 4px 2px;
+  }
+  .link-btn:hover { color: var(--black); text-decoration: underline; }
+
+  .group { border-bottom: 1px solid var(--g6); }
+  .group-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+    padding: 8px 0;
+  }
+  .group-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--g3);
+    font-weight: 600;
+  }
+  .group-count { font-size: 11px; color: var(--g5); }
+  .group-caret { color: var(--g4); font-size: 10px; transition: transform 0.15s ease; }
+  .group.collapsed .group-caret { transform: rotate(-90deg); }
+  .group-header input[type="checkbox"] { width: 14px; height: 14px; accent-color: var(--black); cursor: pointer; }
+
+  .fields { display: grid; grid-template-columns: 1fr; gap: 0; padding: 0 0 8px 4px; }
+  .group.collapsed .fields { display: none; }
+  .field {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 6px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .field:hover { background: var(--g7); }
+  .field input[type="checkbox"] { accent-color: var(--black); width: 14px; height: 14px; flex-shrink: 0; }
+  .field-name { font-size: 13px; }
+  .badge {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--g4);
+    border: 1px solid var(--g6);
+    border-radius: 4px;
+    padding: 1px 4px;
+    white-space: nowrap;
+    cursor: help;
+  }
+  .hidden { display: none !important; }
+
+  /* buttons */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    padding: 12px 18px;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    background: var(--black);
+    color: var(--white);
+    border: 1px solid var(--black);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+  .btn:hover:not(:disabled) { background: var(--white); color: var(--black); }
+  .btn:disabled { background: var(--g5); border-color: var(--g5); color: var(--white); cursor: not-allowed; }
+  .btn.ghost { background: var(--white); color: var(--black); border-color: var(--g6); width: auto; padding: 10px 16px; }
+  .btn.ghost:hover:not(:disabled) { background: var(--black); color: var(--white); }
+
+  .spinner {
+    width: 14px; height: 14px;
+    border: 2px solid rgba(255,255,255,0.4);
+    border-top-color: var(--white);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .tip { font-size: 11px; color: var(--g4); margin-top: 8px; line-height: 1.4; }
+
+  .error {
+    border: 1px solid var(--g5);
+    background: var(--g7);
+    color: var(--g2);
+    border-radius: 6px;
+    padding: 12px 16px;
+    font-size: 14px;
+    margin-bottom: 16px;
+  }
+
+  /* results */
+  .empty {
+    border: 1px dashed var(--g6);
+    border-radius: 6px;
+    padding: 48px 20px;
+    text-align: center;
+    color: var(--g5);
+    font-size: 13px;
+  }
+  .counts { font-size: 12px; color: var(--g4); margin-bottom: 12px; letter-spacing: 0.02em; }
+  .counts .fallback-tag {
+    border: 1px solid var(--g6);
+    border-radius: 4px;
+    padding: 1px 6px;
+    color: var(--g3);
+    margin-left: 8px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .table-scroll { overflow: auto; border: 1px solid var(--g6); border-radius: 6px; }
+  table { border-collapse: collapse; width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; }
+  th, td { padding: 8px 12px; border-bottom: 1px solid var(--g6); text-align: left; white-space: nowrap; }
+  th {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--g4);
+    font-weight: 600;
+    background: var(--g7);
+    position: sticky;
+    top: 0;
+  }
+  td.num, th.num { text-align: right; }
+  tr:last-child td { border-bottom: none; }
+  td { color: var(--g1); }
+  td.empty { color: var(--g5); }
+
+  .actions { display: flex; gap: 12px; align-items: center; margin-top: 16px; }
+  .actions .btn { width: auto; min-width: 180px; }
+
+  /* failed */
+  details.failed { margin-top: 20px; border-top: 1px solid var(--g6); padding-top: 12px; }
+  details.failed summary {
+    cursor: pointer;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--g4);
+    list-style: none;
+  }
+  details.failed summary::-webkit-details-marker { display: none; }
+  details.failed summary::before { content: "▸ "; }
+  details.failed[open] summary::before { content: "▾ "; }
+  .failed-item { font-size: 13px; color: var(--g3); margin: 8px 0; word-break: break-all; }
+  .failed-item .reason { color: var(--g4); }
+
+  @media (max-width: 860px) {
+    .layout { flex-direction: column; }
+    .control-pane {
+      flex: 1 1 auto;
+      max-width: 100%;
+      position: static;
+      max-height: none;
+      overflow: visible;
+      width: 100%;
+    }
+  }
+</style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>IG METRICS</h1>
+      <p class="subtitle">paste urls &rarr; pick fields &rarr; copy to sheets</p>
+    </header>
+
+    <div class="layout">
+      <!-- LEFT: results -->
+      <section class="results-pane">
+        <div id="empty" class="empty">Run a scrape to see results here.</div>
+        <div id="error" class="error hidden"></div>
+        <div id="results" class="hidden">
+          <div class="counts" id="counts"></div>
+          <div class="table-scroll">
+            <table id="table"></table>
+          </div>
+          <div class="actions">
+            <button class="btn ghost" id="copy">Copy for Sheets</button>
+          </div>
+          <details class="failed" id="failed-wrap">
+            <summary id="failed-summary">Failed</summary>
+            <div id="failed-list"></div>
+          </details>
+        </div>
+      </section>
+
+      <!-- RIGHT: controls -->
+      <aside class="control-pane">
+        <section class="panel">
+          <label class="micro" for="urls">Instagram URLs</label>
+          <textarea id="urls" placeholder="Paste Instagram URLs — one per line (commas/spaces also fine)"></textarea>
+        </section>
+
+        <section class="panel">
+          <label class="micro">Fields</label>
+          <div class="toolbar">
+            <input type="text" id="filter" placeholder="Filter fields…" />
+            <button class="link-btn" id="select-all">All</button>
+            <button class="link-btn" id="select-none">None</button>
+            <button class="link-btn" id="reset-defaults">Reset</button>
+          </div>
+          <div id="groups"></div>
+        </section>
+
+        <section class="panel">
+          <button class="btn" id="run">Run</button>
+          <p class="tip">Reels report <strong>Plays</strong>, not Views. Picking Views on reels runs the 2nd scraper too (slower) — tick Plays instead for reels.</p>
+        </section>
+      </aside>
+    </div>
+
+    <textarea id="tsv-holder" style="position:absolute;left:-9999px;top:0;width:1px;height:1px" aria-hidden="true"></textarea>
+  </div>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+
+  const els = {
+    urls: $('urls'),
+    filter: $('filter'),
+    groups: $('groups'),
+    selectAll: $('select-all'),
+    selectNone: $('select-none'),
+    resetDefaults: $('reset-defaults'),
+    run: $('run'),
+    error: $('error'),
+    empty: $('empty'),
+    results: $('results'),
+    counts: $('counts'),
+    table: $('table'),
+    copy: $('copy'),
+    tsvHolder: $('tsv-holder'),
+    failedWrap: $('failed-wrap'),
+    failedSummary: $('failed-summary'),
+    failedList: $('failed-list'),
+  };
+
+  let fields = [];
+  const fieldByKey = {};
+  const fieldByLabel = { URL: { type: 'url' } };
+  const selected = new Set(); // keys
+  let lastTsv = '';
+  let copyTimer = null;
+
+  async function init() {
+    try {
+      const res = await fetch('/api/fields');
+      if (!res.ok) throw new Error('Could not load field list.');
+      fields = await res.json();
+    } catch (e) {
+      showError('Could not load fields from the server.');
+      return;
+    }
+    fields.forEach((f) => {
+      fieldByKey[f.key] = f;
+      fieldByLabel[f.label] = f;
+      if (f.default) selected.add(f.key);
+    });
+    renderGroups();
+  }
+
+  function renderGroups() {
+    const byGroup = {};
+    fields.forEach((f) => {
+      (byGroup[f.group] = byGroup[f.group] || []).push(f);
+    });
+
+    els.groups.innerHTML = '';
+    for (const groupName of Object.keys(byGroup)) {
+      const groupFields = byGroup[groupName];
+      const groupEl = document.createElement('div');
+      groupEl.className = 'group';
+      groupEl.dataset.group = groupName;
+
+      const header = document.createElement('div');
+      header.className = 'group-header';
+      header.innerHTML = `
+        <span class="group-caret">▾</span>
+        <span class="group-title">${escapeHtml(groupName)}</span>
+        <span class="group-count">${groupFields.length}</span>`;
+      const headerCheck = document.createElement('input');
+      headerCheck.type = 'checkbox';
+      headerCheck.className = 'group-check';
+      headerCheck.checked = groupFields.every((f) => selected.has(f.key));
+      header.prepend(headerCheck);
+
+      const fieldsWrap = document.createElement('div');
+      fieldsWrap.className = 'fields';
+
+      groupFields.forEach((f) => {
+        const label = document.createElement('label');
+        label.className = 'field';
+        label.dataset.key = f.key;
+        label.dataset.search = f.label.toLowerCase();
+
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = selected.has(f.key);
+        cb.dataset.key = f.key;
+        cb.addEventListener('change', () => {
+          if (cb.checked) selected.add(f.key);
+          else selected.delete(f.key);
+          syncGroupChecks();
+        });
+
+        const name = document.createElement('span');
+        name.className = 'field-name';
+        name.textContent = f.label;
+
+        label.appendChild(cb);
+        label.appendChild(name);
+
+        if (f.primary == null) {
+          const badge = document.createElement('span');
+          badge.className = 'badge';
+          badge.textContent = 'reel';
+          badge.title = 'selecting this runs the second scraper over all URLs (extra Apify cost)';
+          label.appendChild(badge);
+        }
+
+        fieldsWrap.appendChild(label);
+      });
+
+      // clicking the header (not the checkbox) collapses/expands the group
+      header.addEventListener('click', (e) => {
+        if (e.target === headerCheck) return;
+        groupEl.classList.toggle('collapsed');
+      });
+      headerCheck.addEventListener('change', () => {
+        groupFields.forEach((f) => {
+          if (headerCheck.checked) selected.add(f.key);
+          else selected.delete(f.key);
+        });
+        syncCheckboxes();
+      });
+
+      groupEl.appendChild(header);
+      groupEl.appendChild(fieldsWrap);
+      els.groups.appendChild(groupEl);
+    }
+    syncGroupChecks();
+  }
+
+  function allFieldEls() {
+    return Array.from(els.groups.querySelectorAll('.field'));
+  }
+
+  function syncCheckboxes() {
+    allFieldEls().forEach((label) => {
+      const cb = label.querySelector('input[type="checkbox"]');
+      if (cb) cb.checked = selected.has(cb.dataset.key);
+    });
+    syncGroupChecks();
+  }
+
+  function syncGroupChecks() {
+    els.groups.querySelectorAll('.group').forEach((groupEl) => {
+      const groupName = groupEl.dataset.group;
+      const check = groupEl.querySelector('.group-check');
+      const keys = fields.filter((f) => f.group === groupName).map((f) => f.key);
+      check.checked = keys.length > 0 && keys.every((k) => selected.has(k));
+    });
+  }
+
+  els.selectAll.addEventListener('click', () => {
+    fields.forEach((f) => selected.add(f.key));
+    syncCheckboxes();
+  });
+  els.selectNone.addEventListener('click', () => {
+    selected.clear();
+    syncCheckboxes();
+  });
+  els.resetDefaults.addEventListener('click', () => {
+    selected.clear();
+    fields.forEach((f) => { if (f.default) selected.add(f.key); });
+    syncCheckboxes();
+  });
+
+  els.filter.addEventListener('input', () => {
+    const q = els.filter.value.trim().toLowerCase();
+    let visibleInGroup = {};
+    allFieldEls().forEach((label) => {
+      const match = !q || label.dataset.search.includes(q);
+      label.classList.toggle('hidden', !match);
+      const groupEl = label.closest('.group');
+      if (groupEl) {
+        visibleInGroup[groupEl.dataset.group] = (visibleInGroup[groupEl.dataset.group] || 0) + (match ? 1 : 0);
+      }
+    });
+    els.groups.querySelectorAll('.group').forEach((groupEl) => {
+      groupEl.classList.toggle('hidden', (visibleInGroup[groupEl.dataset.group] || 0) === 0);
+    });
+  });
+
+  function parseUrlTokens() {
+    return els.urls.value.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+  }
+
+  function showError(msg) {
+    els.error.textContent = msg;
+    els.error.classList.remove('hidden');
+  }
+  function clearError() {
+    els.error.classList.add('hidden');
+    els.error.textContent = '';
+  }
+
+  els.run.addEventListener('click', async () => {
+    clearError();
+    const tokens = parseUrlTokens();
+    const keys = Array.from(selected);
+
+    if (tokens.length === 0) { showError('Paste at least one Instagram URL first.'); return; }
+    if (keys.length === 0) { showError('Pick at least one field.'); return; }
+
+    els.run.disabled = true;
+    els.run.innerHTML = '<span class="spinner"></span> Scraping ' + tokens.length + ' URLs…';
+    els.empty.classList.add('hidden');
+    els.results.classList.add('hidden');
+
+    try {
+      const res = await fetch('/api/scrape', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ urls: tokens, selected: keys }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Scrape failed.');
+      renderResults(data);
+    } catch (e) {
+      showError(e.message || 'Something went wrong.');
+    } finally {
+      els.run.disabled = false;
+      els.run.textContent = 'Run';
+    }
+  });
+
+  function renderResults(data) {
+    els.results.classList.remove('hidden');
+    lastTsv = data.tsv || '';
+
+    const c = data.counts;
+    let countsText = 'requested ' + c.requested + ' · returned ' + c.returned + ' · failed ' + c.failed;
+    if (data.usedFallback) countsText += '<span class="fallback-tag">used fallback</span>';
+    els.counts.innerHTML = countsText;
+
+    // header
+    const thead = document.createElement('thead');
+    const hr = document.createElement('tr');
+    data.columns.forEach((col) => {
+      const th = document.createElement('th');
+      th.textContent = col;
+      const t = fieldByLabel[col] ? fieldByLabel[col].type : null;
+      if (t === 'number') th.className = 'num';
+      hr.appendChild(th);
+    });
+    thead.appendChild(hr);
+
+    const tbody = document.createElement('tbody');
+    (data.rows || []).forEach((row) => {
+      const tr = document.createElement('tr');
+      data.columns.forEach((col) => {
+        const td = document.createElement('td');
+        const val = row[col];
+        const t = fieldByLabel[col] ? fieldByLabel[col].type : null;
+        if (t === 'number') td.className = 'num';
+        if (val == null || val === '') { td.textContent = '—'; td.className = (td.className ? td.className + ' ' : '') + 'empty'; }
+        else td.textContent = val;
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+
+    els.table.innerHTML = '';
+    els.table.appendChild(thead);
+    els.table.appendChild(tbody);
+
+    // failed
+    const failed = data.failed || [];
+    if (failed.length > 0) {
+      els.failedSummary.textContent = 'Failed (' + failed.length + ')';
+      els.failedList.innerHTML = '';
+      failed.forEach((f) => {
+        const div = document.createElement('div');
+        div.className = 'failed-item';
+        div.innerHTML = '<span>' + escapeHtml(f.url) + '</span> <span class="reason">— ' + escapeHtml(f.reason) + '</span>';
+        els.failedList.appendChild(div);
+      });
+      els.failedWrap.classList.remove('hidden');
+    } else {
+      els.failedWrap.classList.add('hidden');
+    }
+
+    // keep raw TSV in a hidden textarea as manual-copy fallback
+    els.tsvHolder.value = lastTsv;
+  }
+
+  els.copy.addEventListener('click', async () => {
+    if (!lastTsv) return;
+    try {
+      await navigator.clipboard.writeText(lastTsv);
+    } catch (e) {
+      els.tsvHolder.focus();
+      els.tsvHolder.select();
+      document.execCommand('copy');
+    }
+    els.copy.textContent = 'Copied ✓';
+    clearTimeout(copyTimer);
+    copyTimer = setTimeout(() => { els.copy.textContent = 'Copy for Sheets'; }, 1500);
+  });
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    }[c]));
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>

@@ -33,7 +33,7 @@ const CONFIG = {
   FALLBACK_MATCH_KEY: 'shortCode',
 
   TIMEZONE: 'Asia/Kolkata', // IST, for datetime columns
-  DATETIME_FORMAT: 'YYYY-MM-DD HH:MM', // 24h; informational — the formatter uses Intl 'en-CA' (see formatDatetime)
+  DATETIME_FORMAT: 'HH:MM:SS AM/PM', // informational — the formatter uses Intl (see formatDatetime)
   BOOL_TRUE: 'Yes',
   BOOL_FALSE: 'No',
 };
@@ -48,7 +48,7 @@ const CONFIG = {
 //   key      internal id (also the key sent by the frontend in `selected`)
 //   label    checkbox label AND output column header
 //   group    category (for grouping in the UI)
-//   type     number | datetime | text | list | bool | url | comments
+//   type     number | datetime | date | text | list | bool | url | comments
 //   default  checked on load? (only the core four are true)
 //   primary  field/path in the primary actor's item (or null if it doesn't provide it)
 //   fallback field/path in the fallback actor's item (or null)
@@ -75,6 +75,7 @@ const FIELD_CATALOG = [
 
   // ── Timing ───────────────────────────────────────────────────────────
   { key: 'postedAt',     label: 'Posted time',        group: 'Timing',     type: 'datetime', default: true,  primary: 'taken_at',        fallback: 'timestamp' }, // unix epoch seconds
+  { key: 'postedDate',   label: 'Posted date',        group: 'Timing',     type: 'date',     default: false, primary: 'taken_at',        fallback: 'timestamp' }, // "D Month YYYY"
   { key: 'takenAt',      label: 'Taken at',           group: 'Timing',     type: 'datetime', default: false, primary: 'taken_at_date',   fallback: null }, // ISO string
 
   // ── Post / meta ──────────────────────────────────────────────────────
@@ -195,8 +196,9 @@ function formatNumber(v) {
   return Math.round(n);
 }
 
-function formatDatetime(v) {
-  if (v == null || v === '') return '';
+// Normalise an epoch (seconds/ms), ISO string, or Date to milliseconds — or null.
+function parseTimestampMs(v) {
+  if (v == null || v === '') return null;
   let ms;
   if (typeof v === 'number') {
     ms = v < 1e12 ? v * 1000 : v; // unix seconds → ms; already-ms otherwise
@@ -206,26 +208,42 @@ function formatDatetime(v) {
       ms = parsed.getTime();
     } else {
       const n = Number(v);
-      if (Number.isNaN(n)) return '';
+      if (Number.isNaN(n)) return null;
       ms = n < 1e12 ? n * 1000 : n;
     }
   } else if (v instanceof Date) {
     ms = v.getTime();
   } else {
-    return '';
+    return null;
   }
-  if (!Number.isFinite(ms)) return '';
-  const parts = new Intl.DateTimeFormat('en-CA', {
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function formatDatetime(v) {
+  const ms = parseTimestampMs(v);
+  if (ms == null) return '';
+  const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: CONFIG.TIMEZONE,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
-    hourCycle: 'h23',
+    second: '2-digit',
+    hour12: true,
   }).formatToParts(new Date(ms));
   const get = (t) => (parts.find((p) => p.type === t) || {}).value || '';
-  return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}`;
+  return `${get('hour')}:${get('minute')}:${get('second')} ${get('dayPeriod')}`;
+}
+
+function formatDate(v) {
+  const ms = parseTimestampMs(v);
+  if (ms == null) return '';
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: CONFIG.TIMEZONE,
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  }).formatToParts(new Date(ms));
+  const get = (t) => (parts.find((p) => p.type === t) || {}).value || '';
+  return `${get('day')} ${get('month')} ${get('year')}`;
 }
 
 function formatText(v) {
@@ -272,6 +290,7 @@ function formatValue(field, v) {
   switch (field.type) {
     case 'number':   return formatNumber(v);
     case 'datetime': return formatDatetime(v);
+    case 'date':     return formatDate(v);
     case 'text':     return formatText(v);
     case 'list':     return formatList(v, field.sub);
     case 'comments': return formatComments(v);
@@ -397,6 +416,7 @@ app.get('/api/fields', (req, res) => {
 });
 
 app.post('/api/scrape', async (req, res) => {
+  const startedAt = Date.now();
   try {
     const body = req.body || {};
     const parsed = parseUrls(body.urls);
@@ -486,6 +506,7 @@ app.post('/api/scrape', async (req, res) => {
     }
     const tsv = lines.join('\n');
 
+    const totalMs = Date.now() - startedAt;
     res.json({
       columns,
       rows,
@@ -495,6 +516,10 @@ app.post('/api/scrape', async (req, res) => {
         requested: parsed.entries.length + parsed.failed.length,
         returned: rows.length,
         failed: failed.length,
+      },
+      timing: {
+        totalMs,
+        avgMs: Math.round(totalMs / parsed.entries.length),
       },
       usedFallback,
     });

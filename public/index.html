@@ -27,11 +27,11 @@
     -webkit-font-smoothing: antialiased;
   }
   .app {
-    max-width: 1280px;
+    max-width: 1200px;
     margin: 0 auto;
-    padding: 24px 24px 40px;
+    padding: 24px 32px 48px;
   }
-  header { margin-bottom: 20px; }
+  header { margin-bottom: 24px; }
   h1 {
     font-size: 22px;
     letter-spacing: 0.02em;
@@ -44,20 +44,11 @@
     font-size: 13px;
   }
 
-  .layout {
-    display: flex;
-    gap: 28px;
-    align-items: flex-start;
-  }
-  .results-pane { flex: 1 1 auto; min-width: 0; }
-  .control-pane {
-    flex: 0 0 360px;
-    max-width: 360px;
-    position: sticky;
-    top: 24px;
-    max-height: calc(100vh - 48px);
-    overflow-y: auto;
-    padding-right: 4px;
+  .top {
+    display: grid;
+    grid-template-columns: 360px 1fr;
+    gap: 32px;
+    align-items: start;
   }
 
   .micro {
@@ -68,11 +59,11 @@
     color: var(--g4);
     margin: 0 0 8px;
   }
-  section.panel { margin-bottom: 22px; }
 
+  /* left column: urls + run + counts */
   textarea {
     width: 100%;
-    min-height: 96px;
+    min-height: 260px;
     padding: 12px;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     font-size: 12px;
@@ -85,18 +76,31 @@
   }
   textarea:focus { outline: none; border-color: var(--g2); }
   textarea::placeholder { color: var(--g5); }
+  .run-row { margin-top: 12px; }
+  .counts { font-size: 12px; color: var(--g4); margin-top: 12px; letter-spacing: 0.02em; }
+  .counts .fallback-tag {
+    border: 1px solid var(--g6);
+    border-radius: 4px;
+    padding: 1px 6px;
+    color: var(--g3);
+    margin-left: 8px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .tip { font-size: 11px; color: var(--g4); margin-top: 12px; line-height: 1.4; }
 
-  /* field picker */
+  /* right column: fields */
   .toolbar {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: 8px;
     align-items: center;
-    margin-bottom: 10px;
+    margin-bottom: 12px;
   }
   .toolbar input[type="text"] {
     flex: 1;
-    min-width: 100px;
+    min-width: 140px;
     padding: 8px 10px;
     border: 1px solid var(--g6);
     border-radius: 6px;
@@ -116,14 +120,14 @@
   }
   .link-btn:hover { color: var(--black); text-decoration: underline; }
 
-  .group { border-bottom: 1px solid var(--g6); }
+  .group { border-bottom: 1px solid var(--g6); padding: 8px 0; }
   .group-header {
     display: flex;
     align-items: center;
     gap: 8px;
     cursor: pointer;
     user-select: none;
-    padding: 8px 0;
+    padding: 4px 0 10px;
   }
   .group-title {
     font-size: 11px;
@@ -137,7 +141,12 @@
   .group.collapsed .group-caret { transform: rotate(-90deg); }
   .group-header input[type="checkbox"] { width: 14px; height: 14px; accent-color: var(--black); cursor: pointer; }
 
-  .fields { display: grid; grid-template-columns: 1fr; gap: 0; padding: 0 0 8px 4px; }
+  .fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 8px 24px;
+    padding: 0 0 4px 2px;
+  }
   .group.collapsed .fields { display: none; }
   .field {
     display: flex;
@@ -146,10 +155,16 @@
     padding: 4px 6px;
     border-radius: 6px;
     cursor: pointer;
+    min-width: 0;
   }
   .field:hover { background: var(--g7); }
   .field input[type="checkbox"] { accent-color: var(--black); width: 14px; height: 14px; flex-shrink: 0; }
-  .field-name { font-size: 13px; }
+  .field-name {
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .badge {
     font-size: 9px;
     text-transform: uppercase;
@@ -159,6 +174,7 @@
     border-radius: 4px;
     padding: 1px 4px;
     white-space: nowrap;
+    flex-shrink: 0;
     cursor: help;
   }
   .hidden { display: none !important; }
@@ -195,8 +211,6 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  .tip { font-size: 11px; color: var(--g4); margin-top: 8px; line-height: 1.4; }
-
   .error {
     border: 1px solid var(--g5);
     background: var(--g7);
@@ -207,7 +221,8 @@
     margin-bottom: 16px;
   }
 
-  /* results */
+  /* results — full width, below the top section */
+  .results-section { margin-top: 40px; }
   .empty {
     border: 1px dashed var(--g6);
     border-radius: 6px;
@@ -215,17 +230,6 @@
     text-align: center;
     color: var(--g5);
     font-size: 13px;
-  }
-  .counts { font-size: 12px; color: var(--g4); margin-bottom: 12px; letter-spacing: 0.02em; }
-  .counts .fallback-tag {
-    border: 1px solid var(--g6);
-    border-radius: 4px;
-    padding: 1px 6px;
-    color: var(--g3);
-    margin-left: 8px;
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
   }
   .table-scroll { overflow: auto; border: 1px solid var(--g6); border-radius: 6px; }
   table { border-collapse: collapse; width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; }
@@ -245,8 +249,20 @@
   td { color: var(--g1); }
   td.empty { color: var(--g5); }
 
-  .actions { display: flex; gap: 12px; align-items: center; margin-top: 16px; }
-  .actions .btn { width: auto; min-width: 180px; }
+  .copy-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+  .copy-bar .micro { margin: 0; }
+  .copy-bar select {
+    padding: 8px 10px;
+    border: 1px solid var(--g6);
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: inherit;
+    background: var(--white);
+    color: var(--g1);
+    max-width: 320px;
+  }
+  .copy-bar select:focus { outline: none; border-color: var(--g2); }
+  .copy-bar .btn { width: auto; min-width: 180px; }
 
   /* failed */
   details.failed { margin-top: 20px; border-top: 1px solid var(--g6); padding-top: 12px; }
@@ -264,16 +280,9 @@
   .failed-item { font-size: 13px; color: var(--g3); margin: 8px 0; word-break: break-all; }
   .failed-item .reason { color: var(--g4); }
 
-  @media (max-width: 860px) {
-    .layout { flex-direction: column; }
-    .control-pane {
-      flex: 1 1 auto;
-      max-width: 100%;
-      position: static;
-      max-height: none;
-      overflow: visible;
-      width: 100%;
-    }
+  @media (max-width: 900px) {
+    .top { grid-template-columns: 1fr; }
+    .fields { grid-template-columns: 1fr; }
   }
 </style>
 </head>
@@ -284,50 +293,52 @@
       <p class="subtitle">paste urls &rarr; pick fields &rarr; copy to sheets</p>
     </header>
 
-    <div class="layout">
-      <!-- LEFT: results -->
-      <section class="results-pane">
-        <div id="empty" class="empty">Run a scrape to see results here.</div>
-        <div id="error" class="error hidden"></div>
-        <div id="results" class="hidden">
-          <div class="counts" id="counts"></div>
-          <div class="table-scroll">
-            <table id="table"></table>
-          </div>
-          <div class="actions">
-            <button class="btn ghost" id="copy">Copy for Sheets</button>
-          </div>
-          <details class="failed" id="failed-wrap">
-            <summary id="failed-summary">Failed</summary>
-            <div id="failed-list"></div>
-          </details>
+    <div class="top">
+      <!-- LEFT: urls + run + status -->
+      <section class="input-col">
+        <label class="micro" for="urls">Instagram URLs</label>
+        <textarea id="urls" placeholder="Paste Instagram URLs — one per line (commas/spaces also fine)"></textarea>
+        <div class="run-row">
+          <button class="btn" id="run">Run</button>
         </div>
+        <div class="counts" id="counts"></div>
+        <p class="tip">Reels report <strong>Plays</strong>, not Views. Picking Views on reels runs the 2nd scraper too (slower) — tick Plays instead for reels.</p>
       </section>
 
-      <!-- RIGHT: controls -->
-      <aside class="control-pane">
-        <section class="panel">
-          <label class="micro" for="urls">Instagram URLs</label>
-          <textarea id="urls" placeholder="Paste Instagram URLs — one per line (commas/spaces also fine)"></textarea>
-        </section>
-
-        <section class="panel">
-          <label class="micro">Fields</label>
-          <div class="toolbar">
-            <input type="text" id="filter" placeholder="Filter fields…" />
-            <button class="link-btn" id="select-all">All</button>
-            <button class="link-btn" id="select-none">None</button>
-            <button class="link-btn" id="reset-defaults">Reset</button>
-          </div>
-          <div id="groups"></div>
-        </section>
-
-        <section class="panel">
-          <button class="btn" id="run">Run</button>
-          <p class="tip">Reels report <strong>Plays</strong>, not Views. Picking Views on reels runs the 2nd scraper too (slower) — tick Plays instead for reels.</p>
-        </section>
-      </aside>
+      <!-- RIGHT: fields -->
+      <section class="fields-col">
+        <label class="micro">Fields</label>
+        <div class="toolbar">
+          <input type="text" id="filter" placeholder="Filter fields…" />
+          <button class="link-btn" id="select-all">All</button>
+          <button class="link-btn" id="select-none">None</button>
+          <button class="link-btn" id="reset-defaults">Reset</button>
+        </div>
+        <div id="groups"></div>
+      </section>
     </div>
+
+    <!-- RESULTS: full width, below -->
+    <section class="results-section">
+      <div id="empty" class="empty">Run a scrape to see results here.</div>
+      <div id="error" class="error hidden"></div>
+      <div id="results" class="hidden">
+        <div class="copy-bar">
+          <label class="micro" for="copy-col">Copy column</label>
+          <select id="copy-col">
+            <option value="__all__">All columns</option>
+          </select>
+          <button class="btn ghost" id="copy">Copy for Sheets</button>
+        </div>
+        <div class="table-scroll">
+          <table id="table"></table>
+        </div>
+        <details class="failed" id="failed-wrap">
+          <summary id="failed-summary">Failed</summary>
+          <div id="failed-list"></div>
+        </details>
+      </div>
+    </section>
 
     <textarea id="tsv-holder" style="position:absolute;left:-9999px;top:0;width:1px;height:1px" aria-hidden="true"></textarea>
   </div>
@@ -350,6 +361,7 @@
     counts: $('counts'),
     table: $('table'),
     copy: $('copy'),
+    copyCol: $('copy-col'),
     tsvHolder: $('tsv-holder'),
     failedWrap: $('failed-wrap'),
     failedSummary: $('failed-summary'),
@@ -360,7 +372,10 @@
   const fieldByKey = {};
   const fieldByLabel = { URL: { type: 'url' } };
   const selected = new Set(); // keys
+  const EXPANDED_GROUPS = new Set(['Engagement', 'Timing']);
   let lastTsv = '';
+  let lastColumns = [];
+  let lastRows = [];
   let copyTimer = null;
 
   async function init() {
@@ -392,6 +407,7 @@
       const groupEl = document.createElement('div');
       groupEl.className = 'group';
       groupEl.dataset.group = groupName;
+      if (!EXPANDED_GROUPS.has(groupName)) groupEl.classList.add('collapsed');
 
       const header = document.createElement('div');
       header.className = 'group-header';
@@ -434,7 +450,7 @@
         if (f.primary == null) {
           const badge = document.createElement('span');
           badge.className = 'badge';
-          badge.textContent = 'reel';
+          badge.textContent = 'reel scraper';
           badge.title = 'selecting this runs the second scraper over all URLs (extra Apify cost)';
           label.appendChild(badge);
         }
@@ -526,6 +542,15 @@
     els.error.textContent = '';
   }
 
+  function fmtDur(ms) {
+    if (ms == null || !Number.isFinite(ms)) return '';
+    if (ms < 1000) return Math.round(ms) + 'ms';
+    if (ms < 60000) return (ms / 1000).toFixed(1) + 's';
+    const m = Math.floor(ms / 60000);
+    const s = Math.round((ms % 60000) / 1000);
+    return m + 'm ' + s + 's';
+  }
+
   els.run.addEventListener('click', async () => {
     clearError();
     const tokens = parseUrlTokens();
@@ -559,10 +584,23 @@
   function renderResults(data) {
     els.results.classList.remove('hidden');
     lastTsv = data.tsv || '';
+    lastColumns = data.columns || [];
+    lastRows = data.rows || [];
+
+    // populate the copy-column selector
+    els.copyCol.innerHTML = '<option value="__all__">All columns</option>';
+    lastColumns.forEach((col) => {
+      const opt = document.createElement('option');
+      opt.value = col;
+      opt.textContent = col;
+      els.copyCol.appendChild(opt);
+    });
+    els.copyCol.value = '__all__';
 
     const c = data.counts;
     let countsText = 'requested ' + c.requested + ' · returned ' + c.returned + ' · failed ' + c.failed;
     if (data.usedFallback) countsText += '<span class="fallback-tag">used fallback</span>';
+    if (data.timing) countsText += ' · <span title="wall-clock time for the whole scrape">' + fmtDur(data.timing.totalMs) + ' total</span> · <span title="average time per URL">' + fmtDur(data.timing.avgMs) + '/url</span>';
     els.counts.innerHTML = countsText;
 
     // header
@@ -617,9 +655,16 @@
   }
 
   els.copy.addEventListener('click', async () => {
-    if (!lastTsv) return;
+    let text;
+    const col = els.copyCol.value;
+    if (!col || col === '__all__') {
+      text = lastTsv;
+    } else {
+      text = lastRows.map((r) => (r[col] == null ? '' : String(r[col]))).join('\n');
+    }
+    if (!text) return;
     try {
-      await navigator.clipboard.writeText(lastTsv);
+      await navigator.clipboard.writeText(text);
     } catch (e) {
       els.tsvHolder.focus();
       els.tsvHolder.select();

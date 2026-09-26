@@ -528,10 +528,19 @@ app.post('/api/scrape', async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  if (!process.env.APIFY_TOKEN) {
-    console.warn('\n⚠  APIFY_TOKEN is not set. /api/fields works, but /api/scrape will fail until you add your token to .env.\n');
-  }
-  console.log(`IG Metrics Automator running at http://localhost:${PORT}`);
-});
+// Export the Express app so Vercel can bundle it as a single serverless
+// function (auto-detected from `server.js`). On Vercel, `public/` is served
+// from the CDN and `express.static` is ignored.
+module.exports = app;
+
+// Start a local dev server only when run directly (`npm start`), not when
+// bundled as a serverless function on Vercel.
+if (require.main === module) {
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => {
+    if (!process.env.APIFY_TOKEN) {
+      console.warn('\n⚠  APIFY_TOKEN is not set. /api/fields works, but /api/scrape will fail until you add your token to .env.\n');
+    }
+    console.log(`IG Metrics Automator running at http://localhost:${PORT}`);
+  });
+}

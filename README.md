@@ -39,6 +39,21 @@ npm start
 
 Open http://localhost:3000
 
+## Deploy to Vercel
+
+The app runs as a single serverless Vercel Function (Vercel auto-detects the Express app in
+`server.js`) and serves `public/index.html` from the CDN. No build step required.
+
+1. Push to GitHub and import the repo at https://vercel.com/new (or run `vercel` from the
+   CLI after `npm i -g vercel`).
+2. Add one environment variable in **Settings → Environment Variables**:
+   - `APIFY_TOKEN` — your Apify token (`PORT` is not needed; Vercel manages it).
+3. Deploy. Vercel picks up `server.js` and `vercel.json` automatically.
+
+> The scrape waits on Apify (~15–30s), so `vercel.json` sets `maxDuration: 300`. The
+> function's Hobby-plan limit is 300s — very large batches may time out, so keep runs to a
+> reasonable number of URLs.
+
 ## Usage
 
 1. Paste Instagram post/reel/tv URLs — one per line (commas/spaces also fine).

@@ -50,9 +50,9 @@ The app runs as a single serverless Vercel Function (Vercel auto-detects the Exp
    - `APIFY_TOKEN` — your Apify token (`PORT` is not needed; Vercel manages it).
 3. Deploy. Vercel picks up `server.js` and `vercel.json` automatically.
 
-> The scrape waits on Apify (~15–30s), so `vercel.json` sets `maxDuration: 300`. The
-> function's Hobby-plan limit is 300s — very large batches may time out, so keep runs to a
-> reasonable number of URLs.
+> The scrape waits on Apify (~15–30s). Vercel's Hobby plan defaults to a 300s max
+> duration, which is enough for normal batches — very large batches may still time out,
+> so keep runs to a reasonable number of URLs.
 
 ## Usage
 

@@ -13,18 +13,28 @@ const { ApifyClient } = require('apify-client');
 const CONFIG = {
   // ── Actor IDs (find on each actor's Apify page → "API" tab, or the store URL
   //    slug "owner~actor-name") ──
-  // PRIMARY = the 128-field Instagram post scraper (Doc 1). Takes an ARRAY of
+  // PRIMARY = the 128-field Instagram post scraper. Takes an ARRAY of
   // post/reel/tv URLs in one run, returns the widest set of fields. Default
   // source for almost everything.
   PRIMARY_ACTOR_ID: 'data-slayer/instagram-post-details',
   PRIMARY_INPUT_KEY: 'postUrls', // verified against live input schema — the bulk array field is `postUrls` (legacy single field is `postCode`)
 
-  // FALLBACK = Instagram Reel Scraper (Doc 2). Adds reel-only fields (comment
-  // detail, transcript, pinned, display/audio URLs, plays…) and gap-fills
-  // values the primary hides (e.g. views == -1).
+  // FALLBACK = Instagram Reel Scraper. Adds reel-only fields (comment detail,
+  // transcript, pinned, display/audio URLs, plays…) and gap-fills values the
+  // primary hides.
   FALLBACK_ACTOR_ID: 'apify/instagram-reel-scraper', // verified slug
   FALLBACK_INPUT_KEY: 'username', // verified against live input schema — the array field accepting reel URLs is `username`
   FALLBACK_ENABLED: true, // false = primary only
+
+  // COMMENTS = a dedicated comments extractor (full comment lists, top comments).
+  // The user will supply the actor ID + input key; leave disabled until then.
+  COMMENTS_ACTOR_ID: 'REPLACE_WITH_COMMENTS_ACTOR_ID', // TODO: set this
+  COMMENTS_INPUT_KEY: 'urls', // TODO: verify on the actor's Input tab
+  COMMENTS_MATCH_KEY: 'shortcode', // TODO: verify which field carries the post shortcode
+  COMMENTS_ENABLED: false, // flip to true once the actor is configured
+
+  // How many input links to scrape + stream at a time (real-time batching).
+  BATCH_SIZE: 5,
 
   // Results are matched to inputs by shortcode (actors reorder and normalise
   // /reel/ ↔ /p/). These are the keys we look at first on each actor's items;
@@ -47,17 +57,16 @@ const CONFIG = {
 //
 //   key      internal id (also the key sent by the frontend in `selected`)
 //   label    checkbox label AND output column header
-//   group    category (for grouping in the UI)
+//   group    category (for sub-grouping in the UI)
+//   bucket   'recommended' | 'advanced' — which top-level checklist section it lives in
 //   type     number | datetime | date | text | list | bool | url | comments
 //   default  checked on load? (only the core four are true)
-//   primary  field/path in the primary actor's item (or null if it doesn't provide it)
+//   primary  field/path in the primary actor's item (or null)
 //   fallback field/path in the fallback actor's item (or null)
+//   comments field/path in the comments actor's item (or null)
 //   sub      for arrays of objects, the subkey to pull from each element (e.g. "username")
 //
 // Paths are dot-separated ("musicInfo.artist_name", "location.lat").
-// Several keys below come from Doc 1's prose rather than its sample and may
-// differ — they're marked `// verify key`. If one comes back always-blank, fix
-// that single line here.
 // ─────────────────────────────────────────────────────────────────────────────
 // NOTE: the primary actor returns the RAW Instagram web-info JSON (358 keys),
 // NOT the clean names its README claims. Every `primary` path below has been
@@ -65,78 +74,80 @@ const CONFIG = {
 // returns clean names and its paths were verified against its sample output.
 const FIELD_CATALOG = [
   // ── Engagement (numbers) ─────────────────────────────────────────────
-  { key: 'likes',        label: 'Likes',              group: 'Engagement', type: 'number',  default: true,  primary: 'metrics.like_count',    fallback: 'likesCount' },
-  { key: 'comments',     label: 'Comments',           group: 'Engagement', type: 'number',  default: true,  primary: 'metrics.comment_count', fallback: 'commentsCount' },
-  { key: 'views',        label: 'Views',              group: 'Engagement', type: 'number',  default: true,  primary: 'metrics.view_count',    fallback: 'videoViewCount' }, // reels report plays, not views → often blank; tick Plays for reels
-  { key: 'plays',        label: 'Plays',              group: 'Engagement', type: 'number',  default: false, primary: 'metrics.play_count',    fallback: 'videoPlayCount' },
-  { key: 'shares',       label: 'Shares',             group: 'Engagement', type: 'number',  default: false, primary: 'metrics.share_count',   fallback: null },
-  { key: 'saves',        label: 'Saves',              group: 'Engagement', type: 'number',  default: false, primary: 'metrics.save_count',    fallback: null },
-  { key: 'reposts',      label: 'Reposts',            group: 'Engagement', type: 'number',  default: false, primary: 'metrics.repost_count',  fallback: null },
+  { key: 'likes',        label: 'Likes',              group: 'Engagement', bucket: 'recommended', type: 'number',  default: true,  primary: 'metrics.like_count',    fallback: 'likesCount' },
+  { key: 'comments',     label: 'Comments',           group: 'Engagement', bucket: 'recommended', type: 'number',  default: true,  primary: 'metrics.comment_count', fallback: 'commentsCount' },
+  { key: 'views',        label: 'Views',              group: 'Engagement', bucket: 'recommended', type: 'number',  default: true,  primary: 'metrics.play_count',    fallback: 'videoPlayCount' }, // reels report plays → map to play count so it always shows
+  { key: 'plays',        label: 'Plays',              group: 'Engagement', bucket: 'recommended', type: 'number',  default: false, primary: 'metrics.ig_play_count', fallback: 'videoPlayCount' },
+  { key: 'shares',       label: 'Shares',             group: 'Engagement', bucket: 'recommended', type: 'number',  default: false, primary: 'metrics.share_count',   fallback: null },
+  { key: 'saves',        label: 'Saves',              group: 'Engagement', bucket: 'recommended', type: 'number',  default: false, primary: 'metrics.save_count',    fallback: null },
+  { key: 'reposts',      label: 'Reposts',            group: 'Engagement', bucket: 'recommended', type: 'number',  default: false, primary: 'metrics.repost_count',  fallback: null },
 
   // ── Timing ───────────────────────────────────────────────────────────
-  { key: 'postedAt',     label: 'Posted time',        group: 'Timing',     type: 'datetime', default: true,  primary: 'taken_at',        fallback: 'timestamp' }, // unix epoch seconds
-  { key: 'postedDate',   label: 'Posted date',        group: 'Timing',     type: 'date',     default: false, primary: 'taken_at',        fallback: 'timestamp' }, // "D Month YYYY"
-  { key: 'takenAt',      label: 'Taken at',           group: 'Timing',     type: 'datetime', default: false, primary: 'taken_at_date',   fallback: null }, // ISO string
+  { key: 'postedAt',     label: 'Posted time',        group: 'Timing',     bucket: 'recommended', type: 'datetime', default: true,  primary: 'taken_at',        fallback: 'timestamp' }, // unix epoch seconds
+  { key: 'postedDate',   label: 'Posted date',        group: 'Timing',     bucket: 'recommended', type: 'date',     default: false, primary: 'taken_at',        fallback: 'timestamp' }, // "D Month YYYY"
+  { key: 'takenAt',      label: 'Taken at',           group: 'Timing',     bucket: 'advanced',    type: 'datetime', default: false, primary: 'taken_at_date',   fallback: null }, // ISO string
 
   // ── Post / meta ──────────────────────────────────────────────────────
-  { key: 'postUrl',      label: 'Post URL',           group: 'Post',       type: 'url',     default: false, primary: null,              fallback: 'url' },
-  { key: 'shortcode',    label: 'Shortcode',          group: 'Post',       type: 'text',    default: false, primary: 'code',             fallback: 'shortCode' },
-  { key: 'postId',       label: 'Post ID',            group: 'Post',       type: 'text',    default: false, primary: 'id',               fallback: 'id' },
-  { key: 'postType',     label: 'Post type',          group: 'Post',       type: 'text',    default: false, primary: 'media_name',       fallback: 'type' }, // "reel" / "video" / "image" …
-  { key: 'productType',  label: 'Product type',       group: 'Post',       type: 'text',    default: false, primary: 'product_type',     fallback: 'productType' }, // "clips" / "feed" / "igtv" …
-  { key: 'caption',      label: 'Caption',            group: 'Post',       type: 'text',    default: false, primary: 'caption.text',     fallback: 'caption' }, // SANITIZE newlines
-  { key: 'hashtags',     label: 'Hashtags',           group: 'Post',       type: 'list',    default: false, primary: 'caption.hashtags', fallback: 'hashtags' },
-  { key: 'mentions',     label: 'Mentions',           group: 'Post',       type: 'list',    default: false, primary: 'caption.mentions', fallback: 'mentions' },
-  { key: 'paidPartner',  label: 'Paid partnership',   group: 'Post',       type: 'bool',    default: false, primary: 'is_paid_partnership', fallback: 'paidPartnership' },
-  { key: 'sponsors',     label: 'Sponsors',           group: 'Post',       type: 'list',    default: false, primary: 'sponsor_tags',   sub: 'sponsor.username', fallback: null },
-  { key: 'taggedUsers',  label: 'Tagged users',       group: 'Post',       type: 'list',    default: false, primary: 'tagged_users',   sub: 'username',         fallback: 'taggedUsers' },
-  { key: 'productTags',  label: 'Product tags',       group: 'Post',       type: 'list',    default: false, primary: 'featured_products', fallback: null }, // verify shape; rarely populated
-  { key: 'isPinned',     label: 'Pinned',             group: 'Post',       type: 'bool',    default: false, primary: 'is_pinned',       fallback: 'isPinned' },
-  { key: 'canReshare',   label: 'Can reshare',        group: 'Post',       type: 'bool',    default: false, primary: 'can_reshare',     fallback: null },
-  { key: 'filterType',   label: 'Filter type',        group: 'Post',       type: 'text',    default: false, primary: 'filter_type',     fallback: null }, // numeric filter id (0 = none)
-  { key: 'commentsOff',  label: 'Comments disabled',  group: 'Post',       type: 'bool',    default: false, primary: 'comments_disabled', fallback: 'isCommentsDisabled' },
-  { key: 'altText',      label: 'Alt text',           group: 'Post',       type: 'text',    default: false, primary: 'accessibility_caption', fallback: 'alt' },
+  { key: 'caption',      label: 'Caption',            group: 'Post',       bucket: 'recommended', type: 'text',    default: false, primary: 'caption.text',     fallback: 'caption' }, // SANITIZE newlines
+  { key: 'postUrl',      label: 'Post URL',           group: 'Post',       bucket: 'advanced',    type: 'url',     default: false, primary: null,              fallback: 'url' },
+  { key: 'shortcode',    label: 'Shortcode',          group: 'Post',       bucket: 'advanced',    type: 'text',    default: false, primary: 'code',             fallback: 'shortCode' },
+  { key: 'postId',       label: 'Post ID',            group: 'Post',       bucket: 'advanced',    type: 'text',    default: false, primary: 'id',               fallback: 'id' },
+  { key: 'postType',     label: 'Post type',          group: 'Post',       bucket: 'advanced',    type: 'text',    default: false, primary: 'media_name',       fallback: 'type' }, // "reel" / "video" / "image" …
+  { key: 'productType',  label: 'Product type',       group: 'Post',       bucket: 'advanced',    type: 'text',    default: false, primary: 'product_type',     fallback: 'productType' }, // "clips" / "feed" / "igtv" …
+  { key: 'hashtags',     label: 'Hashtags',           group: 'Post',       bucket: 'advanced',    type: 'list',    default: false, primary: 'caption.hashtags', fallback: 'hashtags' },
+  { key: 'mentions',     label: 'Mentions',           group: 'Post',       bucket: 'advanced',    type: 'list',    default: false, primary: 'caption.mentions', fallback: 'mentions' },
+  { key: 'paidPartner',  label: 'Paid partnership',   group: 'Post',       bucket: 'advanced',    type: 'bool',    default: false, primary: 'is_paid_partnership', fallback: 'paidPartnership' },
+  { key: 'sponsors',     label: 'Sponsors',           group: 'Post',       bucket: 'advanced',    type: 'list',    default: false, primary: 'sponsor_tags',   sub: 'sponsor.username', fallback: null },
+  { key: 'taggedUsers',  label: 'Tagged users',       group: 'Post',       bucket: 'advanced',    type: 'list',    default: false, primary: 'tagged_users',   sub: 'username',         fallback: 'taggedUsers' },
+  { key: 'productTags',  label: 'Product tags',       group: 'Post',       bucket: 'advanced',    type: 'list',    default: false, primary: 'featured_products', fallback: null }, // verify shape; rarely populated
+  { key: 'isPinned',     label: 'Pinned',             group: 'Post',       bucket: 'advanced',    type: 'bool',    default: false, primary: 'is_pinned',       fallback: 'isPinned' },
+  { key: 'canReshare',   label: 'Can reshare',        group: 'Post',       bucket: 'advanced',    type: 'bool',    default: false, primary: 'can_reshare',     fallback: null },
+  { key: 'filterType',   label: 'Filter type',        group: 'Post',       bucket: 'advanced',    type: 'text',    default: false, primary: 'filter_type',     fallback: null }, // numeric filter id (0 = none)
+  { key: 'commentsOff',  label: 'Comments disabled',  group: 'Post',       bucket: 'advanced',    type: 'bool',    default: false, primary: 'comments_disabled', fallback: 'isCommentsDisabled' },
+  { key: 'altText',      label: 'Alt text',           group: 'Post',       bucket: 'advanced',    type: 'text',    default: false, primary: 'accessibility_caption', fallback: 'alt' },
 
   // ── Creator / owner ──────────────────────────────────────────────────
-  { key: 'ownerUsername',  label: 'Owner username',         group: 'Creator', type: 'text',   default: false, primary: 'user.username',           fallback: 'ownerUsername' },
-  { key: 'ownerFullName',  label: 'Owner full name',        group: 'Creator', type: 'text',   default: false, primary: 'user.full_name',           fallback: 'ownerFullName' },
-  { key: 'ownerId',        label: 'Owner ID',               group: 'Creator', type: 'text',   default: false, primary: 'user.id',                  fallback: 'ownerId' },
-  { key: 'ownerVerified',  label: 'Owner verified',         group: 'Creator', type: 'bool',   default: false, primary: 'user.is_verified',          fallback: null },
-  { key: 'ownerFollowers', label: 'Owner followers',        group: 'Creator', type: 'number', default: false, primary: 'metrics.user_follower_count', fallback: null }, // often null (primary rarely fetches it)
-  { key: 'ownerBio',       label: 'Owner bio',              group: 'Creator', type: 'text',   default: false, primary: null,                fallback: null }, // not in either actor's output
-  { key: 'ownerExtUrl',    label: 'Owner external URL',     group: 'Creator', type: 'url',    default: false, primary: null,                fallback: null }, // not in either actor's output
-  { key: 'ownerCategory',  label: 'Owner business category',group: 'Creator', type: 'text',   default: false, primary: null,                fallback: null }, // not in either actor's output
-  { key: 'ownerPic',       label: 'Owner profile pic',      group: 'Creator', type: 'url',    default: false, primary: 'user.profile_pic_url',     fallback: null },
+  { key: 'ownerUsername',  label: 'Owner username',         group: 'Creator', bucket: 'recommended', type: 'text',   default: false, primary: 'user.username',           fallback: 'ownerUsername' },
+  { key: 'ownerFullName',  label: 'Owner full name',        group: 'Creator', bucket: 'recommended', type: 'text',   default: false, primary: 'user.full_name',           fallback: 'ownerFullName' },
+  { key: 'ownerId',        label: 'Owner ID',               group: 'Creator', bucket: 'advanced',    type: 'text',   default: false, primary: 'user.id',                  fallback: 'ownerId' },
+  { key: 'ownerVerified',  label: 'Owner verified',         group: 'Creator', bucket: 'advanced',    type: 'bool',   default: false, primary: 'user.is_verified',          fallback: null },
+  { key: 'ownerFollowers', label: 'Owner followers',        group: 'Creator', bucket: 'advanced',    type: 'number', default: false, primary: 'metrics.user_follower_count', fallback: null }, // often null
+  { key: 'ownerBio',       label: 'Owner bio',              group: 'Creator', bucket: 'advanced',    type: 'text',   default: false, primary: null,                fallback: null }, // not in either actor's output
+  { key: 'ownerExtUrl',    label: 'Owner external URL',     group: 'Creator', bucket: 'advanced',    type: 'url',    default: false, primary: null,                fallback: null }, // not in either actor's output
+  { key: 'ownerCategory',  label: 'Owner business category',group: 'Creator', bucket: 'advanced',    type: 'text',   default: false, primary: null,                fallback: null }, // not in either actor's output
+  { key: 'ownerPic',       label: 'Owner profile pic',      group: 'Creator', bucket: 'advanced',    type: 'url',    default: false, primary: 'user.profile_pic_url',     fallback: null },
 
   // ── Audio / music ────────────────────────────────────────────────────
-  { key: 'audioTitle',   label: 'Audio title',        group: 'Audio',      type: 'text',    default: false, primary: 'clips_metadata.original_sound_info.original_audio_title', fallback: 'musicInfo.song_name' },
-  { key: 'audioArtist',  label: 'Audio artist',       group: 'Audio',      type: 'text',    default: false, primary: 'clips_metadata.original_sound_info.ig_artist.full_name', fallback: 'musicInfo.artist_name' },
-  { key: 'audioId',      label: 'Audio ID',           group: 'Audio',      type: 'text',    default: false, primary: 'clips_metadata.original_sound_info.audio_id', fallback: 'musicInfo.audio_id' },
-  { key: 'origAudio',    label: 'Original audio',     group: 'Audio',      type: 'bool',    default: false, primary: null,              fallback: 'musicInfo.uses_original_audio' }, // primary has no clean boolean
-  { key: 'musicGenre',   label: 'Music genre',        group: 'Audio',      type: 'text',    default: false, primary: null,              fallback: null }, // not in either actor's output
-  { key: 'audioUrl',     label: 'Audio URL',          group: 'Audio',      type: 'url',     default: false, primary: 'clips_metadata.original_sound_info.progressive_download_url', fallback: 'audioUrl' },
+  { key: 'audioTitle',   label: 'Audio title',        group: 'Audio',      bucket: 'advanced', type: 'text',    default: false, primary: 'clips_metadata.original_sound_info.original_audio_title', fallback: 'musicInfo.song_name' },
+  { key: 'audioArtist',  label: 'Audio artist',       group: 'Audio',      bucket: 'advanced', type: 'text',    default: false, primary: 'clips_metadata.original_sound_info.ig_artist.full_name', fallback: 'musicInfo.artist_name' },
+  { key: 'audioId',      label: 'Audio ID',           group: 'Audio',      bucket: 'advanced', type: 'text',    default: false, primary: 'clips_metadata.original_sound_info.audio_id', fallback: 'musicInfo.audio_id' },
+  { key: 'origAudio',    label: 'Original audio',     group: 'Audio',      bucket: 'advanced', type: 'bool',    default: false, primary: null,              fallback: 'musicInfo.uses_original_audio' },
+  { key: 'musicGenre',   label: 'Music genre',        group: 'Audio',      bucket: 'advanced', type: 'text',    default: false, primary: null,              fallback: null }, // not in either actor's output
+  { key: 'audioUrl',     label: 'Audio URL',          group: 'Audio',      bucket: 'advanced', type: 'url',     default: false, primary: 'clips_metadata.original_sound_info.progressive_download_url', fallback: 'audioUrl' },
 
   // ── Media / technical ────────────────────────────────────────────────
-  { key: 'mediaUrl',      label: 'Media / video URL', group: 'Media',      type: 'url',     default: false, primary: 'video_url',      fallback: 'videoUrl' }, // blank on photos (expected)
-  { key: 'thumbnailUrl',  label: 'Thumbnail URL',     group: 'Media',      type: 'url',     default: false, primary: 'thumbnail_url',  fallback: null },
-  { key: 'displayUrl',    label: 'Display image URL', group: 'Media',      type: 'url',     default: false, primary: null,             fallback: 'displayUrl' },
-  { key: 'images',        label: 'Image URLs',        group: 'Media',      type: 'list',    default: false, primary: 'image_versions.items', sub: 'url', fallback: 'images' },
-  { key: 'videoDuration', label: 'Video duration (s)',group: 'Media',      type: 'number',  default: false, primary: 'video_duration', fallback: 'videoDuration' },
-  { key: 'width',         label: 'Width',             group: 'Media',      type: 'number',  default: false, primary: 'original_width', fallback: 'dimensionsWidth' },
-  { key: 'height',        label: 'Height',            group: 'Media',      type: 'number',  default: false, primary: 'original_height', fallback: 'dimensionsHeight' },
-  { key: 'carouselCount', label: 'Carousel items',    group: 'Media',      type: 'number',  default: false, primary: null,             fallback: 'childPosts' }, // output = childPosts.length
-  { key: 'transcript',    label: 'Transcript',        group: 'Media',      type: 'text',    default: false, primary: null,             fallback: 'transcript' }, // SANITIZE; reel-scraper only
+  { key: 'mediaUrl',      label: 'Media / video URL', group: 'Media',      bucket: 'advanced', type: 'url',     default: false, primary: 'video_url',      fallback: 'videoUrl' }, // blank on photos (expected)
+  { key: 'thumbnailUrl',  label: 'Thumbnail URL',     group: 'Media',      bucket: 'advanced', type: 'url',     default: false, primary: 'thumbnail_url',  fallback: null },
+  { key: 'displayUrl',    label: 'Display image URL', group: 'Media',      bucket: 'advanced', type: 'url',     default: false, primary: null,             fallback: 'displayUrl' },
+  { key: 'images',        label: 'Image URLs',        group: 'Media',      bucket: 'advanced', type: 'list',    default: false, primary: 'image_versions.items', sub: 'url', fallback: 'images' },
+  { key: 'videoDuration', label: 'Video duration (s)',group: 'Media',      bucket: 'advanced', type: 'number',  default: false, primary: 'video_duration', fallback: 'videoDuration' },
+  { key: 'width',         label: 'Width',             group: 'Media',      bucket: 'advanced', type: 'number',  default: false, primary: 'original_width', fallback: 'dimensionsWidth' },
+  { key: 'height',        label: 'Height',            group: 'Media',      bucket: 'advanced', type: 'number',  default: false, primary: 'original_height', fallback: 'dimensionsHeight' },
+  { key: 'carouselCount', label: 'Carousel items',    group: 'Media',      bucket: 'advanced', type: 'number',  default: false, primary: null,             fallback: 'childPosts' }, // output = childPosts.length
+  { key: 'transcript',    label: 'Transcript',        group: 'Media',      bucket: 'advanced', type: 'text',    default: false, primary: null,             fallback: 'transcript' }, // SANITIZE; reel-scraper only
 
   // ── Location ─────────────────────────────────────────────────────────
-  { key: 'locationName', label: 'Location name',      group: 'Location',   type: 'text',    default: false, primary: 'location.name',    fallback: 'locationName' },
-  { key: 'locationId',   label: 'Location ID',        group: 'Location',   type: 'text',    default: false, primary: 'location.pk',      fallback: 'locationId' },
-  { key: 'locationLat',  label: 'Location lat',       group: 'Location',   type: 'number',  default: false, primary: 'location.lat',     fallback: null },
-  { key: 'locationLng',  label: 'Location lng',       group: 'Location',   type: 'number',  default: false, primary: 'location.lng',     fallback: null },
-  { key: 'locationAddr', label: 'Location address',   group: 'Location',   type: 'text',    default: false, primary: 'location.address', fallback: null },
+  { key: 'locationName', label: 'Location name',      group: 'Location',   bucket: 'advanced', type: 'text',    default: false, primary: 'location.name',    fallback: 'locationName' },
+  { key: 'locationId',   label: 'Location ID',        group: 'Location',   bucket: 'advanced', type: 'text',    default: false, primary: 'location.pk',      fallback: 'locationId' },
+  { key: 'locationLat',  label: 'Location lat',       group: 'Location',   bucket: 'advanced', type: 'number',  default: false, primary: 'location.lat',     fallback: null },
+  { key: 'locationLng',  label: 'Location lng',       group: 'Location',   bucket: 'advanced', type: 'number',  default: false, primary: 'location.lng',     fallback: null },
+  { key: 'locationAddr', label: 'Location address',   group: 'Location',   bucket: 'advanced', type: 'text',    default: false, primary: 'location.address', fallback: null },
 
-  // ── Comments detail (reel scraper) ───────────────────────────────────
-  { key: 'firstComment',  label: 'First comment',     group: 'Comments',   type: 'text',     default: false, primary: null, fallback: 'firstComment' }, // SANITIZE
-  { key: 'latestComments',label: 'Latest comments',   group: 'Comments',   type: 'comments', default: false, primary: null, fallback: 'latestComments' }, // join "user: text | ..."; SANITIZE
+  // ── Comments detail ──────────────────────────────────────────────────
+  { key: 'firstComment',  label: 'First comment',     group: 'Comments',   bucket: 'recommended', type: 'text',     default: false, primary: null, fallback: 'firstComment' }, // SANITIZE
+  { key: 'latestComments',label: 'Latest comments',   group: 'Comments',   bucket: 'recommended', type: 'comments', default: false, primary: null, fallback: 'latestComments' }, // join "user: text | ..."
+  { key: 'topComments',   label: 'Top comments',      group: 'Comments',   bucket: 'recommended', type: 'comments', default: false, primary: null, fallback: null, comments: 'topComments' }, // comments actor — verify key
+  { key: 'allComments',   label: 'All comments',      group: 'Comments',   bucket: 'recommended', type: 'comments', default: false, primary: null, fallback: null, comments: 'comments' }, // comments actor — verify key
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -172,15 +183,13 @@ function sanitize(v) {
     .trim();
 }
 
-// Missing value detection (treat empty arrays as missing so a gap-fill can try).
 function isMissing(v) {
   if (v == null || v === '') return true;
   if (Array.isArray(v) && v.length === 0) return true;
   return false;
 }
 
-// True when the primary actor's value for this field should fall through to
-// the fallback actor (absent, empty, or Instagram's hidden-count sentinel -1).
+// True when the primary actor's value should fall through to the fallback actor.
 function isPrimaryGap(field, v) {
   if (isMissing(v)) return true;
   if (field.type === 'number' && typeof v === 'number' && (v === -1 || Number.isNaN(v))) return true;
@@ -196,12 +205,11 @@ function formatNumber(v) {
   return Math.round(n);
 }
 
-// Normalise an epoch (seconds/ms), ISO string, or Date to milliseconds — or null.
 function parseTimestampMs(v) {
   if (v == null || v === '') return null;
   let ms;
   if (typeof v === 'number') {
-    ms = v < 1e12 ? v * 1000 : v; // unix seconds → ms; already-ms otherwise
+    ms = v < 1e12 ? v * 1000 : v;
   } else if (typeof v === 'string') {
     const parsed = new Date(v);
     if (!Number.isNaN(parsed.getTime())) {
@@ -271,7 +279,7 @@ function formatComments(v) {
   const parts = v
     .map((c) => {
       if (!c || typeof c !== 'object') return '';
-      const u = sanitize(c.ownerUsername ?? c.owner_username);
+      const u = sanitize(c.ownerUsername ?? c.owner_username ?? c.username);
       const t = sanitize(c.text ?? c.comment);
       if (!u && !t) return '';
       return u ? `${u}: ${t}` : t;
@@ -300,9 +308,13 @@ function formatValue(field, v) {
   }
 }
 
-// Pick the value for one field from primary + fallback items, then format it.
-function resolveField(field, primaryItem, fallbackItem) {
+// Pick the value for one field from the actor items, then format it.
+function resolveField(field, primaryItem, fallbackItem, commentsItem) {
   let v;
+  if (field.comments != null) {
+    v = getPath(commentsItem, field.comments);
+    return formatValue(field, v);
+  }
   if (field.primary != null) {
     const pv = getPath(primaryItem, field.primary);
     if (!isPrimaryGap(field, pv)) {
@@ -313,7 +325,6 @@ function resolveField(field, primaryItem, fallbackItem) {
       return '';
     }
   } else {
-    // fallback-only field
     if (fallbackItem) v = getPath(fallbackItem, field.fallback);
     else return '';
   }
@@ -322,27 +333,24 @@ function resolveField(field, primaryItem, fallbackItem) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // URL parsing + result mapping (matched by shortcode, never by array order).
+// Duplicates are KEPT but flagged; invalid links are KEPT as rows.
 // ─────────────────────────────────────────────────────────────────────────────
 
-function parseUrls(raw) {
+function parseInputs(raw) {
   const tokens = String(raw || '').split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
-  const seenShortcodes = new Set();
-  const seenInvalid = new Set();
-  const entries = [];
-  const failed = [];
+  const seen = new Set();
+  const inputs = [];
   for (const t of tokens) {
     const sc = extractShortcode(t);
     if (sc) {
-      if (!seenShortcodes.has(sc)) {
-        seenShortcodes.add(sc);
-        entries.push({ shortcode: sc, url: t });
-      }
-    } else if (!seenInvalid.has(t)) {
-      seenInvalid.add(t);
-      failed.push({ url: t, reason: 'invalid url' });
+      const duplicate = seen.has(sc);
+      seen.add(sc);
+      inputs.push({ url: t, shortcode: sc, duplicate, invalid: false });
+    } else {
+      inputs.push({ url: t, shortcode: null, duplicate: false, invalid: true });
     }
   }
-  return { entries, failed };
+  return inputs;
 }
 
 function itemShortcode(item, matchKey) {
@@ -370,6 +378,10 @@ function buildMap(items, matchKey) {
   return map;
 }
 
+function mergeMap(target, source) {
+  for (const [k, v] of source) if (!target.has(k)) target.set(k, v);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Apify client + actor runs (one automatic retry, batched — never per-URL).
 // ─────────────────────────────────────────────────────────────────────────────
@@ -384,7 +396,7 @@ function getClient() {
 
 async function runActor(actorId, inputKey, urls) {
   if (!actorId || /REPLACE/i.test(actorId)) {
-    throw new Error('Actor ID not configured — set PRIMARY_ACTOR_ID / FALLBACK_ACTOR_ID in the CONFIG block of server.js.');
+    throw new Error('An actor ID is not configured (see the CONFIG block in server.js).');
   }
   const client = getClient();
   const attempt = async () => {
@@ -393,13 +405,155 @@ async function runActor(actorId, inputKey, urls) {
       throw new Error(`Actor ${actorId} returned no dataset.`);
     }
     const { items } = await client.dataset(run.defaultDatasetId).listItems();
-    return items || [];
+    const cost = Number(run.usageTotalUsd || run.usageUsd || 0);
+    return { items: items || [], cost };
   };
   try {
     return await attempt();
   } catch (err) {
     return await attempt(); // one retry; a second failure propagates
   }
+}
+
+// Run the actors needed for `selectedFields` over `urls`, returning per-actor
+// item maps + total cost. Primary runs first (needed for gap detection).
+async function scrapeUrls(urls, selectedFields) {
+  const primaryMap = new Map();
+  const fallbackMap = new Map();
+  const commentsMap = new Map();
+  let costUsd = 0;
+  let usedFallback = false;
+  let usedComments = false;
+
+  const needPrimary = selectedFields.some((f) => f.primary != null);
+  const needFallbackAll = selectedFields.some((f) => f.primary == null && f.fallback != null);
+  const needComments = selectedFields.some((f) => f.comments != null);
+  const fallbackEnabled = !!CONFIG.FALLBACK_ENABLED;
+  const commentsEnabled = !!CONFIG.COMMENTS_ENABLED;
+
+  const run = async (id, key, u) => {
+    const r = await runActor(id, key, u);
+    costUsd += r.cost;
+    return r.items;
+  };
+
+  // Primary + fallback(when needed for all) + comments run concurrently.
+  const parallel = [];
+  if (needPrimary) {
+    parallel.push(
+      run(CONFIG.PRIMARY_ACTOR_ID, CONFIG.PRIMARY_INPUT_KEY, urls)
+        .then((items) => mergeMap(primaryMap, buildMap(items, CONFIG.PRIMARY_MATCH_KEY)))
+    );
+  }
+  if (fallbackEnabled && needFallbackAll) {
+    parallel.push(
+      run(CONFIG.FALLBACK_ACTOR_ID, CONFIG.FALLBACK_INPUT_KEY, urls)
+        .then((items) => { mergeMap(fallbackMap, buildMap(items, CONFIG.FALLBACK_MATCH_KEY)); usedFallback = true; })
+    );
+  }
+  if (commentsEnabled && needComments) {
+    parallel.push(
+      run(CONFIG.COMMENTS_ACTOR_ID, CONFIG.COMMENTS_INPUT_KEY, urls)
+        .then((items) => { mergeMap(commentsMap, buildMap(items, CONFIG.COMMENTS_MATCH_KEY)); usedComments = true; })
+    );
+  }
+  await Promise.all(parallel);
+
+  // Gap-fill fallback: only for URLs whose selected both-source fields are
+  // missing in the primary (and no fallback-only field forced an all run).
+  if (fallbackEnabled && !needFallbackAll && needPrimary) {
+    const bothFields = selectedFields.filter((f) => f.primary != null && f.fallback != null);
+    const fbUrls = urls.filter((u) => {
+      const sc = extractShortcode(u);
+      const item = primaryMap.get(sc);
+      if (!item) return true;
+      return bothFields.some((f) => isPrimaryGap(f, getPath(item, f.primary)));
+    });
+    if (fbUrls.length) {
+      const items = await run(CONFIG.FALLBACK_ACTOR_ID, CONFIG.FALLBACK_INPUT_KEY, fbUrls);
+      mergeMap(fallbackMap, buildMap(items, CONFIG.FALLBACK_MATCH_KEY));
+      usedFallback = true;
+    }
+  }
+
+  return { primaryMap, fallbackMap, commentsMap, costUsd, usedFallback, usedComments };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Jobs — in-memory batch processing (real-time streaming for local use).
+// ─────────────────────────────────────────────────────────────────────────────
+
+const jobs = new Map();
+
+function randomId() {
+  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+async function processJob(jobId, inputs, selectedFields) {
+  const job = jobs.get(jobId);
+  if (!job) return;
+  const primaryMap = new Map();
+  const fallbackMap = new Map();
+  const commentsMap = new Map();
+  const batchSize = Math.max(1, CONFIG.BATCH_SIZE);
+  const totalBatches = Math.ceil(inputs.length / batchSize);
+
+  for (let b = 0; b < totalBatches; b++) {
+    const batch = inputs.slice(b * batchSize, (b + 1) * batchSize);
+
+    // Determine which shortcodes in this batch still need scraping.
+    const toScrape = [];
+    const seenThisBatch = new Set();
+    for (const it of batch) {
+      if (!it.shortcode) continue;
+      if (primaryMap.has(it.shortcode) || fallbackMap.has(it.shortcode) || seenThisBatch.has(it.shortcode)) continue;
+      seenThisBatch.add(it.shortcode);
+      toScrape.push(it.url);
+    }
+
+    if (toScrape.length > 0) {
+      const r = await scrapeUrls(toScrape, selectedFields);
+      mergeMap(primaryMap, r.primaryMap);
+      mergeMap(fallbackMap, r.fallbackMap);
+      mergeMap(commentsMap, r.commentsMap);
+      job.costUsd += r.costUsd;
+      job.usedFallback = job.usedFallback || r.usedFallback;
+      job.usedComments = job.usedComments || r.usedComments;
+    }
+
+    // Build rows for this batch in input order (including duplicates + invalid).
+    for (const it of batch) {
+      const row = { URL: it.url };
+      let status = 'ok';
+      let reason = null;
+      if (it.invalid) {
+        status = 'invalid';
+        reason = 'unsupported link (not Instagram)';
+      } else {
+        const p = primaryMap.get(it.shortcode);
+        const fb = fallbackMap.get(it.shortcode);
+        const cm = commentsMap.get(it.shortcode);
+        if (!p && !fb && !cm) {
+          status = 'no data';
+          reason = 'no data (private / deleted / unavailable)';
+        } else if (it.duplicate) {
+          status = 'duplicate';
+        }
+        if (status === 'ok' || status === 'duplicate') {
+          for (const f of selectedFields) row[f.label] = resolveField(f, p, fb, cm);
+        }
+      }
+      job.rows.push(row);
+      job.meta.push({ url: it.url, status, reason });
+    }
+
+    job.batchesDone = b + 1;
+    job.counts.returned = job.meta.filter((m) => m.status === 'ok' || m.status === 'duplicate').length;
+    job.counts.failed = job.meta.filter((m) => m.status === 'invalid' || m.status === 'no data').length;
+  }
+
+  job.status = 'done';
+  job.timing = { totalMs: Date.now() - job.startedAt };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -410,20 +564,13 @@ const app = express();
 app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Single source of truth for the frontend checklist.
 app.get('/api/fields', (req, res) => {
   res.json(FIELD_CATALOG);
 });
 
-app.post('/api/scrape', async (req, res) => {
-  const startedAt = Date.now();
+app.post('/api/scrape', (req, res) => {
   try {
     const body = req.body || {};
-    const parsed = parseUrls(body.urls);
-    if (parsed.entries.length === 0) {
-      return res.status(400).json({ error: 'No valid Instagram URLs found. Paste post/reel/tv URLs.' });
-    }
-
     const selectedKeys = Array.isArray(body.selected) ? body.selected : [];
     const selectedFields = selectedKeys
       .map((k) => FIELD_CATALOG.find((f) => f.key === k))
@@ -432,109 +579,56 @@ app.post('/api/scrape', async (req, res) => {
       return res.status(400).json({ error: 'Select at least one field.' });
     }
 
-    const urlsList = parsed.entries.map((e) => e.url);
-    const needPrimary = selectedFields.some((f) => f.primary != null);
-    const needFallbackAll = selectedFields.some((f) => f.primary == null && f.fallback != null);
-    const fallbackEnabled = !!CONFIG.FALLBACK_ENABLED;
-
-    let primaryMap = new Map();
-    let fallbackMap = new Map();
-    let usedFallback = false;
-
-    // Fast path: when a fallback-only field is selected we know up front that
-    // BOTH actors are needed, so run them concurrently — halves wall-clock time.
-    if (needPrimary && fallbackEnabled && needFallbackAll) {
-      const [primaryItems, fallbackItems] = await Promise.all([
-        runActor(CONFIG.PRIMARY_ACTOR_ID, CONFIG.PRIMARY_INPUT_KEY, urlsList),
-        runActor(CONFIG.FALLBACK_ACTOR_ID, CONFIG.FALLBACK_INPUT_KEY, urlsList),
-      ]);
-      primaryMap = buildMap(primaryItems, CONFIG.PRIMARY_MATCH_KEY);
-      fallbackMap = buildMap(fallbackItems, CONFIG.FALLBACK_MATCH_KEY);
-      usedFallback = true;
-    } else {
-      // One batched run of the primary actor for all URLs.
-      if (needPrimary) {
-        const items = await runActor(CONFIG.PRIMARY_ACTOR_ID, CONFIG.PRIMARY_INPUT_KEY, urlsList);
-        primaryMap = buildMap(items, CONFIG.PRIMARY_MATCH_KEY);
-      }
-
-      if (fallbackEnabled) {
-        let fallbackUrls = null;
-        if (needFallbackAll) {
-          fallbackUrls = urlsList; // a selected field is fallback-only → need it for every URL
-        } else {
-          // Gap-fill: only re-fetch URLs where a selected both-source field is
-          // missing / hidden (-1) in the primary. Keeps the second run cheap.
-          const bothFields = selectedFields.filter((f) => f.primary != null && f.fallback != null);
-          fallbackUrls = urlsList.filter((u) => {
-            const sc = extractShortcode(u);
-            const item = primaryMap.get(sc);
-            if (!item) return true;
-            return bothFields.some((f) => isPrimaryGap(f, getPath(item, f.primary)));
-          });
-        }
-        if (fallbackUrls && fallbackUrls.length > 0) {
-          const items = await runActor(CONFIG.FALLBACK_ACTOR_ID, CONFIG.FALLBACK_INPUT_KEY, fallbackUrls);
-          fallbackMap = buildMap(items, CONFIG.FALLBACK_MATCH_KEY);
-          usedFallback = true;
-        }
-      }
+    const inputs = parseInputs(body.urls);
+    if (!inputs.some((i) => i.shortcode)) {
+      return res.status(400).json({ error: 'No valid Instagram URLs found. Paste post/reel/tv URLs.' });
     }
 
-    // Assemble rows (URL always first), skipping URLs with no data at all.
-    const columns = ['URL', ...selectedFields.map((f) => f.label)];
-    const rows = [];
-    const failed = [...parsed.failed];
-    for (const e of parsed.entries) {
-      const sc = e.shortcode;
-      const primaryItem = primaryMap.get(sc);
-      const fallbackItem = fallbackMap.get(sc);
-      if (!primaryItem && !fallbackItem) {
-        failed.push({ url: e.url, reason: 'no data (private / deleted / unavailable)' });
-        continue;
-      }
-      const row = { URL: e.url };
-      for (const f of selectedFields) {
-        row[f.label] = resolveField(f, primaryItem, fallbackItem);
-      }
-      rows.push(row);
-    }
-
-    const lines = [columns.join('\t')];
-    for (const row of rows) {
-      lines.push(columns.map((c) => (row[c] == null ? '' : String(row[c]))).join('\t'));
-    }
-    const tsv = lines.join('\n');
-
-    const totalMs = Date.now() - startedAt;
-    res.json({
-      columns,
-      rows,
-      tsv,
-      failed,
+    const jobId = randomId();
+    const batchSize = Math.max(1, CONFIG.BATCH_SIZE);
+    jobs.set(jobId, {
+      status: 'running',
+      columns: ['URL', ...selectedFields.map((f) => f.label)],
+      rows: [],
+      meta: [],
       counts: {
-        requested: parsed.entries.length + parsed.failed.length,
-        returned: rows.length,
-        failed: failed.length,
+        requested: inputs.length,
+        returned: 0,
+        failed: 0,
+        duplicates: inputs.filter((i) => i.duplicate).length,
       },
-      timing: {
-        totalMs,
-        avgMs: Math.round(totalMs / parsed.entries.length),
-      },
-      usedFallback,
+      costUsd: 0,
+      batchesTotal: Math.ceil(inputs.length / batchSize),
+      batchesDone: 0,
+      usedFallback: false,
+      usedComments: false,
+      startedAt: Date.now(),
+      timing: null,
+      error: null,
     });
+
+    processJob(jobId, inputs, selectedFields).catch((err) => {
+      const job = jobs.get(jobId);
+      if (job) {
+        job.status = 'error';
+        job.error = err && err.message ? err.message : 'Scrape failed.';
+      }
+    });
+
+    res.json({ jobId, batchesTotal: jobs.get(jobId).batchesTotal });
   } catch (err) {
-    res.status(500).json({ error: err && err.message ? err.message : 'Scrape failed.' });
+    res.status(400).json({ error: err && err.message ? err.message : 'Scrape failed.' });
   }
 });
 
-// Export the Express app so Vercel can bundle it as a single serverless
-// function (auto-detected from `server.js`). On Vercel, `public/` is served
-// from the CDN and `express.static` is ignored.
+app.get('/api/job/:id', (req, res) => {
+  const job = jobs.get(req.params.id);
+  if (!job) return res.status(404).json({ error: 'Job not found (it may have expired).' });
+  res.json(job);
+});
+
 module.exports = app;
 
-// Start a local dev server only when run directly (`npm start`), not when
-// bundled as a serverless function on Vercel.
 if (require.main === module) {
   const PORT = process.env.PORT || 3000;
   app.listen(PORT, () => {

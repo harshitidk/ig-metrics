@@ -35,24 +35,10 @@
   header { margin-bottom: 24px; }
   .brand { display: flex; align-items: center; gap: 10px; }
   .logo { width: 30px; height: 30px; object-fit: contain; border-radius: 6px; }
-  h1 {
-    font-size: 22px;
-    letter-spacing: 0.02em;
-    margin: 0;
-    font-weight: 700;
-  }
-  .subtitle {
-    color: var(--g4);
-    margin: 2px 0 0;
-    font-size: 13px;
-  }
+  h1 { font-size: 22px; letter-spacing: 0.02em; margin: 0; font-weight: 700; }
+  .subtitle { color: var(--g4); margin: 2px 0 0; font-size: 13px; }
 
-  .top {
-    display: grid;
-    grid-template-columns: 360px 1fr;
-    gap: 32px;
-    align-items: start;
-  }
+  .top { display: grid; grid-template-columns: 360px 1fr; gap: 32px; align-items: start; }
 
   .micro {
     display: block;
@@ -63,7 +49,6 @@
     margin: 0 0 8px;
   }
 
-  /* left column: urls + run + counts */
   textarea {
     width: 100%;
     min-height: 260px;
@@ -80,125 +65,71 @@
   textarea:focus { outline: none; border-color: var(--g2); }
   textarea::placeholder { color: var(--g5); }
   .run-row { margin-top: 12px; }
-  .counts { font-size: 12px; color: var(--g4); margin-top: 12px; letter-spacing: 0.02em; }
-  .counts .fallback-tag {
+  .counts { font-size: 12px; color: var(--g4); margin-top: 12px; letter-spacing: 0.02em; line-height: 1.7; }
+  .counts .tag {
     border: 1px solid var(--g6);
     border-radius: 4px;
     padding: 1px 6px;
     color: var(--g3);
-    margin-left: 8px;
+    margin-left: 6px;
     font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.05em;
+    white-space: nowrap;
   }
+  .counts .cost { color: var(--g2); font-weight: 600; }
   .tip { font-size: 11px; color: var(--g4); margin-top: 12px; line-height: 1.4; }
 
-  /* right column: fields */
-  .toolbar {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    align-items: center;
-    margin-bottom: 12px;
-  }
+  /* field checklist — two sections */
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
   .toolbar input[type="text"] {
-    flex: 1;
-    min-width: 140px;
-    padding: 8px 10px;
-    border: 1px solid var(--g6);
-    border-radius: 6px;
-    font-size: 13px;
-    font-family: inherit;
+    flex: 1; min-width: 140px; padding: 8px 10px;
+    border: 1px solid var(--g6); border-radius: 6px; font-size: 13px; font-family: inherit;
   }
   .toolbar input[type="text"]:focus { outline: none; border-color: var(--g2); }
   .link-btn {
-    background: none;
-    border: none;
-    color: var(--g3);
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    cursor: pointer;
-    padding: 4px 2px;
+    background: none; border: none; color: var(--g3); font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.06em; cursor: pointer; padding: 4px 2px;
   }
   .link-btn:hover { color: var(--black); text-decoration: underline; }
 
+  .section { border: 1px solid var(--g6); border-radius: 8px; margin-bottom: 12px; overflow: hidden; }
+  .section-head {
+    display: flex; align-items: center; gap: 8px; padding: 10px 14px; cursor: pointer;
+    user-select: none; background: var(--white);
+  }
+  .section-head:hover { background: var(--g7); }
+  .section-title { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--g2); font-weight: 700; }
+  .section-count { font-size: 11px; color: var(--g5); }
+  .section-caret { color: var(--g4); font-size: 11px; transition: transform 0.15s ease; }
+  .section.collapsed .section-caret { transform: rotate(-90deg); }
+  .section-body { padding: 4px 14px 12px; }
+  .section.collapsed .section-body { display: none; }
+
   .group { border-bottom: 1px solid var(--g6); padding: 8px 0; }
-  .group-header {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    cursor: pointer;
-    user-select: none;
-    padding: 4px 0 10px;
-  }
-  .group-title {
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--g3);
-    font-weight: 600;
-  }
+  .group:last-child { border-bottom: none; }
+  .group-header { display: flex; align-items: center; gap: 8px; padding: 2px 0 8px; }
+  .group-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--g3); font-weight: 600; }
   .group-count { font-size: 11px; color: var(--g5); }
-  .group-caret { color: var(--g4); font-size: 10px; transition: transform 0.15s ease; }
-  .group.collapsed .group-caret { transform: rotate(-90deg); }
   .group-header input[type="checkbox"] { width: 14px; height: 14px; accent-color: var(--black); cursor: pointer; }
 
-  .fields {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap: 8px 24px;
-    padding: 0 0 4px 2px;
-  }
-  .group.collapsed .fields { display: none; }
-  .field {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 4px 6px;
-    border-radius: 6px;
-    cursor: pointer;
-    min-width: 0;
-  }
+  .fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px 24px; padding: 0 0 4px 2px; }
+  .field { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 6px; cursor: pointer; min-width: 0; }
   .field:hover { background: var(--g7); }
   .field input[type="checkbox"] { accent-color: var(--black); width: 14px; height: 14px; flex-shrink: 0; }
-  .field-name {
-    font-size: 13px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
+  .field-name { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .badge {
-    font-size: 9px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--g4);
-    border: 1px solid var(--g6);
-    border-radius: 4px;
-    padding: 1px 4px;
-    white-space: nowrap;
-    flex-shrink: 0;
-    cursor: help;
+    font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--g4);
+    border: 1px solid var(--g6); border-radius: 4px; padding: 1px 4px; white-space: nowrap; flex-shrink: 0; cursor: help;
   }
   .hidden { display: none !important; }
 
   /* buttons */
   .btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    width: 100%;
-    padding: 12px 18px;
-    font-size: 13px;
-    font-weight: 600;
-    letter-spacing: 0.02em;
-    background: var(--black);
-    color: var(--white);
-    border: 1px solid var(--black);
-    border-radius: 6px;
-    cursor: pointer;
-    transition: background 0.15s ease, color 0.15s ease;
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%;
+    padding: 12px 18px; font-size: 13px; font-weight: 600; letter-spacing: 0.02em;
+    background: var(--black); color: var(--white); border: 1px solid var(--black); border-radius: 6px;
+    cursor: pointer; transition: background 0.15s ease, color 0.15s ease;
   }
   .btn:hover:not(:disabled) { background: var(--white); color: var(--black); }
   .btn:disabled { background: var(--g5); border-color: var(--g5); color: var(--white); cursor: not-allowed; }
@@ -206,82 +137,44 @@
   .btn.ghost:hover:not(:disabled) { background: var(--black); color: var(--white); }
 
   .spinner {
-    width: 14px; height: 14px;
-    border: 2px solid rgba(255,255,255,0.4);
-    border-top-color: var(--white);
-    border-radius: 50%;
-    animation: spin 0.7s linear infinite;
+    width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.4);
+    border-top-color: var(--white); border-radius: 50%; animation: spin 0.7s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  .error {
-    border: 1px solid var(--g5);
-    background: var(--g7);
-    color: var(--g2);
-    border-radius: 6px;
-    padding: 12px 16px;
-    font-size: 14px;
-    margin-bottom: 16px;
-  }
+  .error { border: 1px solid var(--g5); background: var(--g7); color: var(--g2); border-radius: 6px; padding: 12px 16px; font-size: 14px; margin-bottom: 16px; }
 
-  /* results — full width, below the top section */
+  /* results */
   .results-section { margin-top: 40px; }
-  .empty {
-    border: 1px dashed var(--g6);
-    border-radius: 6px;
-    padding: 48px 20px;
-    text-align: center;
-    color: var(--g5);
-    font-size: 13px;
-  }
+  .empty { border: 1px dashed var(--g6); border-radius: 6px; padding: 48px 20px; text-align: center; color: var(--g5); font-size: 13px; }
+
+  .copy-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+  .copy-bar .micro { margin: 0; }
+  .copy-bar select { padding: 8px 10px; border: 1px solid var(--g6); border-radius: 6px; font-size: 13px; font-family: inherit; background: var(--white); color: var(--g1); max-width: 320px; }
+  .copy-bar select:focus { outline: none; border-color: var(--g2); }
+  .copy-bar .btn { width: auto; min-width: 180px; }
+
   .table-scroll { overflow: auto; border: 1px solid var(--g6); border-radius: 6px; }
   table { border-collapse: collapse; width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; }
   th, td { padding: 8px 12px; border-bottom: 1px solid var(--g6); text-align: left; white-space: nowrap; }
   th {
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
-    color: var(--g4);
-    font-weight: 600;
-    background: var(--g7);
-    position: sticky;
-    top: 0;
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--g4); font-weight: 600;
+    background: var(--g7); position: sticky; top: 0; cursor: pointer; user-select: none;
   }
+  th:hover { color: var(--g1); }
+  th .sort-mark { color: var(--g2); margin-left: 4px; }
   td.num, th.num { text-align: right; }
   tr:last-child td { border-bottom: none; }
   td { color: var(--g1); }
   td.empty { color: var(--g5); }
 
-  .copy-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
-  .copy-bar .micro { margin: 0; }
-  .copy-bar select {
-    padding: 8px 10px;
-    border: 1px solid var(--g6);
-    border-radius: 6px;
-    font-size: 13px;
-    font-family: inherit;
-    background: var(--white);
-    color: var(--g1);
-    max-width: 320px;
+  tr.row-duplicate td { background: var(--g7); }
+  tr.row-invalid td, tr.row-nodata td { color: var(--g5); }
+  .row-badge {
+    font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--g4);
+    border: 1px solid var(--g6); border-radius: 4px; padding: 1px 4px; margin-left: 8px; white-space: nowrap;
   }
-  .copy-bar select:focus { outline: none; border-color: var(--g2); }
-  .copy-bar .btn { width: auto; min-width: 180px; }
-
-  /* failed */
-  details.failed { margin-top: 20px; border-top: 1px solid var(--g6); padding-top: 12px; }
-  details.failed summary {
-    cursor: pointer;
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--g4);
-    list-style: none;
-  }
-  details.failed summary::-webkit-details-marker { display: none; }
-  details.failed summary::before { content: "▸ "; }
-  details.failed[open] summary::before { content: "▾ "; }
-  .failed-item { font-size: 13px; color: var(--g3); margin: 8px 0; word-break: break-all; }
-  .failed-item .reason { color: var(--g4); }
+  .row-badge.dup { color: var(--g3); border-color: var(--g5); }
 
   @media (max-width: 900px) {
     .top { grid-template-columns: 1fr; }
@@ -300,7 +193,6 @@
     </header>
 
     <div class="top">
-      <!-- LEFT: urls + run + status -->
       <section class="input-col">
         <label class="micro" for="urls">Instagram URLs</label>
         <textarea id="urls" placeholder="Paste Instagram URLs — one per line (commas/spaces also fine)"></textarea>
@@ -308,10 +200,9 @@
           <button class="btn" id="run">Run</button>
         </div>
         <div class="counts" id="counts"></div>
-        <p class="tip">Reels report <strong>Plays</strong>, not Views. Picking Views on reels runs the 2nd scraper too (slower) — tick Plays instead for reels.</p>
+        <p class="tip">Click a column header to sort (views &uarr;/&darr;). Duplicates and unsupported links stay in their exact row position. Results stream in batches of 5.</p>
       </section>
 
-      <!-- RIGHT: fields -->
       <section class="fields-col">
         <label class="micro">Fields</label>
         <div class="toolbar">
@@ -324,7 +215,6 @@
       </section>
     </div>
 
-    <!-- RESULTS: full width, below -->
     <section class="results-section">
       <div id="empty" class="empty">Run a scrape to see results here.</div>
       <div id="error" class="error hidden"></div>
@@ -339,10 +229,6 @@
         <div class="table-scroll">
           <table id="table"></table>
         </div>
-        <details class="failed" id="failed-wrap">
-          <summary id="failed-summary">Failed</summary>
-          <div id="failed-list"></div>
-        </details>
       </div>
     </section>
 
@@ -369,19 +255,24 @@
     copy: $('copy'),
     copyCol: $('copy-col'),
     tsvHolder: $('tsv-holder'),
-    failedWrap: $('failed-wrap'),
-    failedSummary: $('failed-summary'),
-    failedList: $('failed-list'),
   };
 
   let fields = [];
   const fieldByKey = {};
   const fieldByLabel = { URL: { type: 'url' } };
-  const selected = new Set(); // keys
-  const EXPANDED_GROUPS = new Set(['Engagement', 'Timing']);
-  let lastTsv = '';
-  let lastColumns = [];
-  let lastRows = [];
+  const selected = new Set();
+
+  // result state
+  let columns = [];
+  let rows = [];
+  let meta = [];
+  let costUsd = 0;
+  let usedFallback = false;
+  let usedComments = false;
+  let sortCol = null;
+  let sortDir = null; // 'desc' | 'asc' | null
+  let jobId = null;
+  let pollTimer = null;
   let copyTimer = null;
 
   async function init() {
@@ -401,92 +292,114 @@
     renderGroups();
   }
 
-  function renderGroups() {
-    const byGroup = {};
-    fields.forEach((f) => {
-      (byGroup[f.group] = byGroup[f.group] || []).push(f);
+  function makeFieldLabel(f) {
+    const label = document.createElement('label');
+    label.className = 'field';
+    label.dataset.key = f.key;
+    label.dataset.search = f.label.toLowerCase();
+
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = selected.has(f.key);
+    cb.dataset.key = f.key;
+    cb.addEventListener('change', () => {
+      if (cb.checked) selected.add(f.key);
+      else selected.delete(f.key);
+      syncGroupChecks();
     });
 
+    const name = document.createElement('span');
+    name.className = 'field-name';
+    name.textContent = f.label;
+
+    label.appendChild(cb);
+    label.appendChild(name);
+
+    if (f.comments != null) {
+      const badge = document.createElement('span');
+      badge.className = 'badge';
+      badge.textContent = 'comments';
+      badge.title = 'selecting this runs the comments actor (extra Apify cost)';
+      label.appendChild(badge);
+    } else if (f.primary == null && f.fallback != null) {
+      const badge = document.createElement('span');
+      badge.className = 'badge';
+      badge.textContent = 'reel scraper';
+      badge.title = 'selecting this runs the second scraper over all URLs (extra Apify cost)';
+      label.appendChild(badge);
+    }
+
+    return label;
+  }
+
+  function renderGroups() {
     els.groups.innerHTML = '';
-    for (const groupName of Object.keys(byGroup)) {
-      const groupFields = byGroup[groupName];
-      const groupEl = document.createElement('div');
-      groupEl.className = 'group';
-      groupEl.dataset.group = groupName;
-      if (!EXPANDED_GROUPS.has(groupName)) groupEl.classList.add('collapsed');
+    for (const bucket of ['recommended', 'advanced']) {
+      const bucketFields = fields.filter((f) => f.bucket === bucket);
+      if (!bucketFields.length) continue;
 
-      const header = document.createElement('div');
-      header.className = 'group-header';
-      header.innerHTML = `
-        <span class="group-caret">▾</span>
-        <span class="group-title">${escapeHtml(groupName)}</span>
-        <span class="group-count">${groupFields.length}</span>`;
-      const headerCheck = document.createElement('input');
-      headerCheck.type = 'checkbox';
-      headerCheck.className = 'group-check';
-      headerCheck.checked = groupFields.every((f) => selected.has(f.key));
-      header.prepend(headerCheck);
+      const byGroup = {};
+      bucketFields.forEach((f) => { (byGroup[f.group] = byGroup[f.group] || []).push(f); });
 
-      const fieldsWrap = document.createElement('div');
-      fieldsWrap.className = 'fields';
+      const section = document.createElement('div');
+      section.className = 'section' + (bucket === 'advanced' ? ' collapsed' : '');
+      section.dataset.bucket = bucket;
 
-      groupFields.forEach((f) => {
-        const label = document.createElement('label');
-        label.className = 'field';
-        label.dataset.key = f.key;
-        label.dataset.search = f.label.toLowerCase();
+      const head = document.createElement('div');
+      head.className = 'section-head';
+      head.innerHTML = '<span class="section-caret">▾</span>' +
+        '<span class="section-title">' + (bucket === 'recommended' ? 'Recommended' : 'Advanced') + '</span>' +
+        '<span class="section-count">' + bucketFields.length + '</span>';
+      head.addEventListener('click', () => section.classList.toggle('collapsed'));
 
-        const cb = document.createElement('input');
-        cb.type = 'checkbox';
-        cb.checked = selected.has(f.key);
-        cb.dataset.key = f.key;
-        cb.addEventListener('change', () => {
-          if (cb.checked) selected.add(f.key);
-          else selected.delete(f.key);
-          syncGroupChecks();
+      const body = document.createElement('div');
+      body.className = 'section-body';
+
+      for (const groupName of Object.keys(byGroup)) {
+        const groupFields = byGroup[groupName];
+        const groupEl = document.createElement('div');
+        groupEl.className = 'group';
+        groupEl.dataset.group = groupName;
+
+        const gheader = document.createElement('div');
+        gheader.className = 'group-header';
+        const gcheck = document.createElement('input');
+        gcheck.type = 'checkbox';
+        gcheck.className = 'group-check';
+        gcheck.checked = groupFields.every((f) => selected.has(f.key));
+        gcheck.addEventListener('change', () => {
+          groupFields.forEach((f) => {
+            if (gcheck.checked) selected.add(f.key); else selected.delete(f.key);
+          });
+          syncCheckboxes();
         });
+        const gtitle = document.createElement('span');
+        gtitle.className = 'group-title';
+        gtitle.textContent = groupName;
+        const gcount = document.createElement('span');
+        gcount.className = 'group-count';
+        gcount.textContent = groupFields.length;
+        gheader.appendChild(gcheck);
+        gheader.appendChild(gtitle);
+        gheader.appendChild(gcount);
 
-        const name = document.createElement('span');
-        name.className = 'field-name';
-        name.textContent = f.label;
+        const fieldsWrap = document.createElement('div');
+        fieldsWrap.className = 'fields';
+        groupFields.forEach((f) => fieldsWrap.appendChild(makeFieldLabel(f)));
 
-        label.appendChild(cb);
-        label.appendChild(name);
+        groupEl.appendChild(gheader);
+        groupEl.appendChild(fieldsWrap);
+        body.appendChild(groupEl);
+      }
 
-        if (f.primary == null) {
-          const badge = document.createElement('span');
-          badge.className = 'badge';
-          badge.textContent = 'reel scraper';
-          badge.title = 'selecting this runs the second scraper over all URLs (extra Apify cost)';
-          label.appendChild(badge);
-        }
-
-        fieldsWrap.appendChild(label);
-      });
-
-      // clicking the header (not the checkbox) collapses/expands the group
-      header.addEventListener('click', (e) => {
-        if (e.target === headerCheck) return;
-        groupEl.classList.toggle('collapsed');
-      });
-      headerCheck.addEventListener('change', () => {
-        groupFields.forEach((f) => {
-          if (headerCheck.checked) selected.add(f.key);
-          else selected.delete(f.key);
-        });
-        syncCheckboxes();
-      });
-
-      groupEl.appendChild(header);
-      groupEl.appendChild(fieldsWrap);
-      els.groups.appendChild(groupEl);
+      section.appendChild(head);
+      section.appendChild(body);
+      els.groups.appendChild(section);
     }
     syncGroupChecks();
   }
 
-  function allFieldEls() {
-    return Array.from(els.groups.querySelectorAll('.field'));
-  }
+  function allFieldEls() { return Array.from(els.groups.querySelectorAll('.field')); }
 
   function syncCheckboxes() {
     allFieldEls().forEach((label) => {
@@ -505,14 +418,8 @@
     });
   }
 
-  els.selectAll.addEventListener('click', () => {
-    fields.forEach((f) => selected.add(f.key));
-    syncCheckboxes();
-  });
-  els.selectNone.addEventListener('click', () => {
-    selected.clear();
-    syncCheckboxes();
-  });
+  els.selectAll.addEventListener('click', () => { fields.forEach((f) => selected.add(f.key)); syncCheckboxes(); });
+  els.selectNone.addEventListener('click', () => { selected.clear(); syncCheckboxes(); });
   els.resetDefaults.addEventListener('click', () => {
     selected.clear();
     fields.forEach((f) => { if (f.default) selected.add(f.key); });
@@ -521,54 +428,61 @@
 
   els.filter.addEventListener('input', () => {
     const q = els.filter.value.trim().toLowerCase();
-    let visibleInGroup = {};
-    allFieldEls().forEach((label) => {
-      const match = !q || label.dataset.search.includes(q);
-      label.classList.toggle('hidden', !match);
-      const groupEl = label.closest('.group');
-      if (groupEl) {
-        visibleInGroup[groupEl.dataset.group] = (visibleInGroup[groupEl.dataset.group] || 0) + (match ? 1 : 0);
-      }
-    });
-    els.groups.querySelectorAll('.group').forEach((groupEl) => {
-      groupEl.classList.toggle('hidden', (visibleInGroup[groupEl.dataset.group] || 0) === 0);
+    const visibleInSection = {};
+    els.groups.querySelectorAll('.section').forEach((sec) => {
+      let count = 0;
+      sec.querySelectorAll('.field').forEach((label) => {
+        const match = !q || label.dataset.search.includes(q);
+        label.classList.toggle('hidden', !match);
+        if (match) count++;
+      });
+      visibleInSection[sec.dataset.bucket] = count;
+      sec.querySelectorAll('.group').forEach((groupEl) => {
+        const any = groupEl.querySelectorAll('.field:not(.hidden)').length;
+        groupEl.classList.toggle('hidden', any === 0);
+      });
     });
   });
 
-  function parseUrlTokens() {
-    return els.urls.value.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
-  }
+  function parseUrlTokens() { return els.urls.value.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean); }
 
-  function showError(msg) {
-    els.error.textContent = msg;
-    els.error.classList.remove('hidden');
-  }
-  function clearError() {
-    els.error.classList.add('hidden');
-    els.error.textContent = '';
-  }
+  function showError(msg) { els.error.textContent = msg; els.error.classList.remove('hidden'); }
+  function clearError() { els.error.classList.add('hidden'); els.error.textContent = ''; }
 
   function fmtDur(ms) {
     if (ms == null || !Number.isFinite(ms)) return '';
     if (ms < 1000) return Math.round(ms) + 'ms';
     if (ms < 60000) return (ms / 1000).toFixed(1) + 's';
-    const m = Math.floor(ms / 60000);
-    const s = Math.round((ms % 60000) / 1000);
-    return m + 'm ' + s + 's';
+    return Math.floor(ms / 60000) + 'm ' + Math.round((ms % 60000) / 1000) + 's';
   }
+  function fmtCost(usd) { return '$' + (Number(usd) || 0).toFixed(4); }
+
+  function setRunning(running, n) {
+    if (running) {
+      els.run.disabled = true;
+      els.run.innerHTML = '<span class="spinner"></span> Scraping ' + n + ' URLs…';
+    } else {
+      els.run.disabled = false;
+      els.run.textContent = 'Run';
+    }
+  }
+
+  function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
 
   els.run.addEventListener('click', async () => {
     clearError();
     const tokens = parseUrlTokens();
     const keys = Array.from(selected);
-
     if (tokens.length === 0) { showError('Paste at least one Instagram URL first.'); return; }
     if (keys.length === 0) { showError('Pick at least one field.'); return; }
 
-    els.run.disabled = true;
-    els.run.innerHTML = '<span class="spinner"></span> Scraping ' + tokens.length + ' URLs…';
+    stopPolling();
+    columns = []; rows = []; meta = []; costUsd = 0;
+    sortCol = null; sortDir = null; jobId = null;
     els.empty.classList.add('hidden');
     els.results.classList.add('hidden');
+    els.counts.innerHTML = '';
+    setRunning(true, tokens.length);
 
     try {
       const res = await fetch('/api/scrape', {
@@ -578,59 +492,140 @@
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Scrape failed.');
-      renderResults(data);
+      jobId = data.jobId;
+      els.results.classList.remove('hidden');
+      poll();
+      pollTimer = setInterval(poll, 700);
     } catch (e) {
+      setRunning(false);
       showError(e.message || 'Something went wrong.');
-    } finally {
-      els.run.disabled = false;
-      els.run.textContent = 'Run';
     }
   });
 
-  function renderResults(data) {
-    els.results.classList.remove('hidden');
-    lastTsv = data.tsv || '';
-    lastColumns = data.columns || [];
-    lastRows = data.rows || [];
+  async function poll() {
+    if (!jobId) return;
+    try {
+      const res = await fetch('/api/job/' + jobId);
+      const job = await res.json();
+      if (!res.ok) throw new Error(job.error || 'Job failed.');
+      applyJob(job);
+      if (job.status === 'done' || job.status === 'error') {
+        stopPolling();
+        setRunning(false);
+        if (job.status === 'error') showError(job.error || 'Scrape failed.');
+      }
+    } catch (e) {
+      stopPolling();
+      setRunning(false);
+      showError(e.message || 'Something went wrong.');
+    }
+  }
 
-    // populate the copy-column selector
+  function applyJob(job) {
+    columns = job.columns || [];
+    rows = job.rows || [];
+    meta = job.meta || [];
+    costUsd = job.costUsd || 0;
+    usedFallback = !!job.usedFallback;
+    usedComments = !!job.usedComments;
+
     els.copyCol.innerHTML = '<option value="__all__">All columns</option>';
-    lastColumns.forEach((col) => {
+    columns.forEach((col) => {
       const opt = document.createElement('option');
       opt.value = col;
       opt.textContent = col;
       els.copyCol.appendChild(opt);
     });
-    els.copyCol.value = '__all__';
+    if (![...els.copyCol.options].some((o) => o.value === els.copyCol.value)) els.copyCol.value = '__all__';
 
-    const c = data.counts;
-    let countsText = 'requested ' + c.requested + ' · returned ' + c.returned + ' · failed ' + c.failed;
-    if (data.usedFallback) countsText += '<span class="fallback-tag">used fallback</span>';
-    if (data.timing) countsText += ' · <span title="wall-clock time for the whole scrape">' + fmtDur(data.timing.totalMs) + ' total</span> · <span title="average time per URL">' + fmtDur(data.timing.avgMs) + '/url</span>';
-    els.counts.innerHTML = countsText;
+    renderTable();
 
-    // header
+    const c = job.counts || {};
+    let txt = 'requested ' + c.requested + ' · returned ' + c.returned + ' · failed ' + c.failed;
+    if (c.duplicates) txt += ' · <span title="kept in place, not removed">' + c.duplicates + ' duplicate' + (c.duplicates > 1 ? 's' : '') + '</span>';
+    txt += ' · <span class="cost">' + fmtCost(costUsd) + '</span>';
+    if (job.status === 'running') {
+      txt += ' · scraping ' + job.batchesDone + '/' + job.batchesTotal + ' batches';
+    } else if (job.timing) {
+      txt += ' · ' + fmtDur(job.timing.totalMs) + ' total';
+    }
+    if (usedFallback) txt += '<span class="tag">fallback</span>';
+    if (usedComments) txt += '<span class="tag">comments</span>';
+    els.counts.innerHTML = txt;
+  }
+
+  function computeOrder() {
+    const idx = rows.map((_, i) => i);
+    if (!sortCol || !sortDir) return idx;
+    const type = fieldByLabel[sortCol] ? fieldByLabel[sortCol].type : null;
+    idx.sort((a, b) => {
+      let cmp;
+      if (type === 'number') {
+        const na = (rows[a][sortCol] == null || rows[a][sortCol] === '') ? -Infinity : Number(rows[a][sortCol]);
+        const nb = (rows[b][sortCol] == null || rows[b][sortCol] === '') ? -Infinity : Number(rows[b][sortCol]);
+        cmp = na - nb;
+      } else {
+        const sa = (rows[a][sortCol] == null ? '' : String(rows[a][sortCol])).toLowerCase();
+        const sb = (rows[b][sortCol] == null ? '' : String(rows[b][sortCol])).toLowerCase();
+        cmp = sa < sb ? -1 : sa > sb ? 1 : 0;
+      }
+      return sortDir === 'desc' ? -cmp : cmp;
+    });
+    return idx;
+  }
+
+  function renderTable() {
+    const order = computeOrder();
     const thead = document.createElement('thead');
     const hr = document.createElement('tr');
-    data.columns.forEach((col) => {
+    columns.forEach((col) => {
       const th = document.createElement('th');
-      th.textContent = col;
       const t = fieldByLabel[col] ? fieldByLabel[col].type : null;
       if (t === 'number') th.className = 'num';
+      th.innerHTML = escapeHtml(col);
+      if (sortCol === col && sortDir) {
+        th.innerHTML += '<span class="sort-mark">' + (sortDir === 'desc' ? '↓' : '↑') + '</span>';
+      }
+      th.addEventListener('click', () => {
+        if (sortCol === col) {
+          if (sortDir === 'desc') sortDir = 'asc';
+          else if (sortDir === 'asc') { sortDir = null; sortCol = null; }
+        } else {
+          sortCol = col; sortDir = 'desc';
+        }
+        renderTable();
+      });
       hr.appendChild(th);
     });
     thead.appendChild(hr);
 
     const tbody = document.createElement('tbody');
-    (data.rows || []).forEach((row) => {
+    order.forEach((i) => {
+      const row = rows[i];
+      const m = meta[i] || {};
       const tr = document.createElement('tr');
-      data.columns.forEach((col) => {
+      if (m.status === 'duplicate') tr.className = 'row-duplicate';
+      else if (m.status === 'invalid') tr.className = 'row-invalid';
+      else if (m.status === 'no data') tr.className = 'row-nodata';
+
+      columns.forEach((col) => {
         const td = document.createElement('td');
-        const val = row[col];
         const t = fieldByLabel[col] ? fieldByLabel[col].type : null;
         if (t === 'number') td.className = 'num';
-        if (val == null || val === '') { td.textContent = '—'; td.className = (td.className ? td.className + ' ' : '') + 'empty'; }
-        else td.textContent = val;
+        const val = row[col];
+        if (val == null || val === '') {
+          td.textContent = '—';
+          td.className = (td.className ? td.className + ' ' : '') + 'empty';
+        } else {
+          td.textContent = val;
+        }
+        if (col === 'URL' && m.status !== 'ok') {
+          const badge = document.createElement('span');
+          badge.className = 'row-badge' + (m.status === 'duplicate' ? ' dup' : '');
+          badge.textContent = m.status === 'duplicate' ? 'duplicate' : m.status === 'invalid' ? 'unsupported' : 'no data';
+          badge.title = m.reason || '';
+          td.appendChild(badge);
+        }
         tr.appendChild(td);
       });
       tbody.appendChild(tr);
@@ -639,35 +634,26 @@
     els.table.innerHTML = '';
     els.table.appendChild(thead);
     els.table.appendChild(tbody);
+  }
 
-    // failed
-    const failed = data.failed || [];
-    if (failed.length > 0) {
-      els.failedSummary.textContent = 'Failed (' + failed.length + ')';
-      els.failedList.innerHTML = '';
-      failed.forEach((f) => {
-        const div = document.createElement('div');
-        div.className = 'failed-item';
-        div.innerHTML = '<span>' + escapeHtml(f.url) + '</span> <span class="reason">— ' + escapeHtml(f.reason) + '</span>';
-        els.failedList.appendChild(div);
-      });
-      els.failedWrap.classList.remove('hidden');
-    } else {
-      els.failedWrap.classList.add('hidden');
-    }
-
-    // keep raw TSV in a hidden textarea as manual-copy fallback
-    els.tsvHolder.value = lastTsv;
+  function buildFullTsv() {
+    const lines = [columns.join('\t')];
+    const order = computeOrder();
+    order.forEach((i) => {
+      lines.push(columns.map((c) => (rows[i][c] == null ? '' : String(rows[i][c]))).join('\t'));
+    });
+    return lines.join('\n');
+  }
+  function buildColTsv(col) {
+    const order = computeOrder();
+    return order.map((i) => (rows[i][col] == null ? '' : String(rows[i][col]))).join('\n');
   }
 
   els.copy.addEventListener('click', async () => {
     let text;
     const col = els.copyCol.value;
-    if (!col || col === '__all__') {
-      text = lastTsv;
-    } else {
-      text = lastRows.map((r) => (r[col] == null ? '' : String(r[col]))).join('\n');
-    }
+    if (!col || col === '__all__') text = buildFullTsv();
+    else text = buildColTsv(col);
     if (!text) return;
     try {
       await navigator.clipboard.writeText(text);

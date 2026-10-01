@@ -42,6 +42,13 @@ const CONFIG = {
   PRIMARY_MATCH_KEY: 'code', // primary returns the shortcode as `code`
   FALLBACK_MATCH_KEY: 'shortCode',
 
+  // Fallback cache. The reel scraper is the most expensive actor and its
+  // fields (transcript, display/audio URLs, comment text) change slowly, so
+  // they are cached per shortcode. Primary metrics are intentionally NOT
+  // cached so counts stay fresh for time-series snapshots.
+  FALLBACK_CACHE_ENABLED: true,
+  FALLBACK_CACHE_TTL_MS: 60 * 60 * 1000, // 1 hour (set to 0 to disable)
+
   TIMEZONE: 'Asia/Kolkata', // IST, for datetime columns
   DATETIME_FORMAT: 'HH:MM:SS AM/PM', // informational — the formatter uses Intl (see formatDatetime)
   BOOL_TRUE: 'Yes',
@@ -193,6 +200,17 @@ function isMissing(v) {
 function isPrimaryGap(field, v) {
   if (isMissing(v)) return true;
   if (field.type === 'number' && typeof v === 'number' && (v === -1 || Number.isNaN(v))) return true;
+  return false;
+}
+
+// True when the primary item is a reel/video — the only kinds the fallback
+// reel scraper can enrich. Photos/carousels are excluded so we never pay for
+// a fallback run that can't return anything.
+function isVideoLike(item) {
+  if (!item) return false;
+  if (item.product_type === 'clips') return true; // reels
+  if (item.media_name === 'reel' || item.media_name === 'video') return true;
+  if (item.is_video === true) return true; // catch-all for videos/igtv
   return false;
 }
 
@@ -416,7 +434,11 @@ async function runActor(actorId, inputKey, urls) {
 }
 
 // Run the actors needed for `selectedFields` over `urls`, returning per-actor
-// item maps + total cost. Primary runs first (needed for gap detection).
+// item maps + total cost. Primary runs first: its output both supplies data
+// and tells us which URLs are reels/videos, so the (expensive) fallback reel
+// scraper only ever runs for URLs it can actually enrich.
+const fallbackCache = new Map(); // shortcode -> { item, at }
+
 async function scrapeUrls(urls, selectedFields) {
   const primaryMap = new Map();
   const fallbackMap = new Map();
@@ -430,6 +452,8 @@ async function scrapeUrls(urls, selectedFields) {
   const needComments = selectedFields.some((f) => f.comments != null);
   const fallbackEnabled = !!CONFIG.FALLBACK_ENABLED;
   const commentsEnabled = !!CONFIG.COMMENTS_ENABLED;
+  const fallbackFields = selectedFields.filter((f) => f.fallback != null);
+  const fallbackWanted = fallbackEnabled && fallbackFields.length > 0;
 
   const run = async (id, key, u) => {
     const r = await runActor(id, key, u);
@@ -437,42 +461,63 @@ async function scrapeUrls(urls, selectedFields) {
     return r.items;
   };
 
-  // Primary + fallback(when needed for all) + comments run concurrently.
-  const parallel = [];
-  if (needPrimary) {
-    parallel.push(
-      run(CONFIG.PRIMARY_ACTOR_ID, CONFIG.PRIMARY_INPUT_KEY, urls)
-        .then((items) => mergeMap(primaryMap, buildMap(items, CONFIG.PRIMARY_MATCH_KEY)))
-    );
+  // Primary (data + reel/video classification) and comments run concurrently.
+  // Primary is also run when only fallback fields are selected, so we can tell
+  // reels from photos without ever sending a photo URL to the reel scraper.
+  const shouldRunPrimary = needPrimary || fallbackWanted;
+  const [primaryItems, commentsItems] = await Promise.all([
+    shouldRunPrimary
+      ? run(CONFIG.PRIMARY_ACTOR_ID, CONFIG.PRIMARY_INPUT_KEY, urls)
+      : Promise.resolve(null),
+    commentsEnabled && needComments
+      ? run(CONFIG.COMMENTS_ACTOR_ID, CONFIG.COMMENTS_INPUT_KEY, urls)
+      : Promise.resolve(null),
+  ]);
+  if (primaryItems) mergeMap(primaryMap, buildMap(primaryItems, CONFIG.PRIMARY_MATCH_KEY));
+  if (commentsItems) {
+    mergeMap(commentsMap, buildMap(commentsItems, CONFIG.COMMENTS_MATCH_KEY));
+    usedComments = true;
   }
-  if (fallbackEnabled && needFallbackAll) {
-    parallel.push(
-      run(CONFIG.FALLBACK_ACTOR_ID, CONFIG.FALLBACK_INPUT_KEY, urls)
-        .then((items) => { mergeMap(fallbackMap, buildMap(items, CONFIG.FALLBACK_MATCH_KEY)); usedFallback = true; })
-    );
-  }
-  if (commentsEnabled && needComments) {
-    parallel.push(
-      run(CONFIG.COMMENTS_ACTOR_ID, CONFIG.COMMENTS_INPUT_KEY, urls)
-        .then((items) => { mergeMap(commentsMap, buildMap(items, CONFIG.COMMENTS_MATCH_KEY)); usedComments = true; })
-    );
-  }
-  await Promise.all(parallel);
 
-  // Gap-fill fallback: only for URLs whose selected both-source fields are
-  // missing in the primary (and no fallback-only field forced an all run).
-  if (fallbackEnabled && !needFallbackAll && needPrimary) {
-    const bothFields = selectedFields.filter((f) => f.primary != null && f.fallback != null);
-    const fbUrls = urls.filter((u) => {
+  // Fallback — reels/videos only, and only when it has something to add.
+  if (fallbackWanted) {
+    const reelUrls = urls.filter((u) => {
       const sc = extractShortcode(u);
-      const item = primaryMap.get(sc);
-      if (!item) return true;
-      return bothFields.some((f) => isPrimaryGap(f, getPath(item, f.primary)));
+      return isVideoLike(primaryMap.get(sc));
     });
-    if (fbUrls.length) {
-      const items = await run(CONFIG.FALLBACK_ACTOR_ID, CONFIG.FALLBACK_INPUT_KEY, fbUrls);
-      mergeMap(fallbackMap, buildMap(items, CONFIG.FALLBACK_MATCH_KEY));
-      usedFallback = true;
+    if (reelUrls.length) {
+      let fbUrls;
+      if (needFallbackAll) {
+        fbUrls = reelUrls;
+      } else {
+        const bothFields = selectedFields.filter((f) => f.primary != null && f.fallback != null);
+        fbUrls = reelUrls.filter((u) => {
+          const sc = extractShortcode(u);
+          const item = primaryMap.get(sc);
+          return bothFields.some((f) => isPrimaryGap(f, getPath(item, f.primary)));
+        });
+      }
+
+      // Serve cached fallback items first; only run the actor for the rest.
+      const toRun = [];
+      for (const u of fbUrls) {
+        const sc = extractShortcode(u);
+        const cached = fallbackCache.get(sc);
+        if (CONFIG.FALLBACK_CACHE_ENABLED && cached && Date.now() - cached.at < CONFIG.FALLBACK_CACHE_TTL_MS) {
+          if (!fallbackMap.has(sc)) fallbackMap.set(sc, cached.item);
+        } else {
+          toRun.push(u);
+        }
+      }
+
+      if (toRun.length) {
+        const items = await run(CONFIG.FALLBACK_ACTOR_ID, CONFIG.FALLBACK_INPUT_KEY, toRun);
+        for (const [sc, item] of buildMap(items, CONFIG.FALLBACK_MATCH_KEY)) {
+          if (CONFIG.FALLBACK_CACHE_ENABLED) fallbackCache.set(sc, { item, at: Date.now() });
+          if (!fallbackMap.has(sc)) fallbackMap.set(sc, item);
+        }
+      }
+      if (fallbackMap.size) usedFallback = true;
     }
   }
 

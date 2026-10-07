@@ -546,6 +546,7 @@
     txt += ' · <span class="cost">' + fmtCost(costUsd) + '</span>';
     if (job.status === 'running') {
       txt += ' · scraping ' + job.batchesDone + '/' + job.batchesTotal + ' batches';
+      if (job.retrying) txt += ' · retrying ' + (job.remaining || 0) + ' missing URL' + ((job.remaining || 0) === 1 ? '' : 's');
     } else if (job.timing) {
       txt += ' · ' + fmtDur(job.timing.totalMs) + ' total';
     }

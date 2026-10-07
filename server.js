@@ -33,8 +33,30 @@ const CONFIG = {
   COMMENTS_MATCH_KEY: 'shortcode', // TODO: verify which field carries the post shortcode
   COMMENTS_ENABLED: false, // flip to true once the actor is configured
 
-  // How many input links to scrape + stream at a time (real-time batching).
-  BATCH_SIZE: 5,
+  // How many input links to send per actor run. Larger batches mean fewer
+  // actor-start charges and let the actor pace its own requests (Instagram
+  // rate-limits bursts of small runs far more aggressively).
+  BATCH_SIZE: 25,
+  BATCH_DELAY_MS: 2000, // pause between batches to avoid tripping rate limits
+
+  // How many parallel worker runs to split a bulk submission across. The full
+  // link list is divided evenly and each worker scrapes its own share at the
+  // same time, so a big batch finishes in ~1/CONCURRENCY of the time. Capped
+  // by your Apify plan's max concurrent runs (32 on the free/paid plans).
+  CONCURRENCY: 32,
+
+  // Retry URLs that come back with no data. Instagram rate limits cause
+  // transient failures; keep retrying until every URL has data, capped only by
+  // RETRY_MAX_ROUNDS (a hard safety net for permanently private/deleted URLs).
+  RETRY_ENABLED: true,
+  RETRY_MAX_ROUNDS: 50, // total rounds incl. first pass; stops early once all URLs resolve
+  RETRY_DELAY_MS: 8000, // pause before each retry round
+
+  // Per-run actor attempts. A single actor call can fail transiently (network
+  // blip, Apify hiccup); retry it this many times inside `runActor` before
+  // giving up on that call. Combined with the round-level retry above, a
+  // failed call is never fatal to the job.
+  MAX_RUN_ATTEMPTS: 5,
 
   // Results are matched to inputs by shortcode (actors reorder and normalise
   // /reel/ ↔ /p/). These are the keys we look at first on each actor's items;
@@ -417,20 +439,25 @@ async function runActor(actorId, inputKey, urls) {
     throw new Error('An actor ID is not configured (see the CONFIG block in server.js).');
   }
   const client = getClient();
-  const attempt = async () => {
-    const run = await client.actor(actorId).call({ [inputKey]: urls });
-    if (!run || !run.defaultDatasetId) {
-      throw new Error(`Actor ${actorId} returned no dataset.`);
+  const maxAttempts = Math.max(1, CONFIG.MAX_RUN_ATTEMPTS);
+  let lastErr;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const run = await client.actor(actorId).call({ [inputKey]: urls });
+      if (!run || !run.defaultDatasetId) {
+        throw new Error(`Actor ${actorId} returned no dataset.`);
+      }
+      const { items } = await client.dataset(run.defaultDatasetId).listItems();
+      const cost = Number(run.usageTotalUsd || run.usageUsd || 0);
+      return { items: items || [], cost };
+    } catch (err) {
+      lastErr = err;
+      if (attempt < maxAttempts) {
+        await sleep(attempt * 1000); // small backoff between attempts
+      }
     }
-    const { items } = await client.dataset(run.defaultDatasetId).listItems();
-    const cost = Number(run.usageTotalUsd || run.usageUsd || 0);
-    return { items: items || [], cost };
-  };
-  try {
-    return await attempt();
-  } catch (err) {
-    return await attempt(); // one retry; a second failure propagates
   }
+  throw lastErr;
 }
 
 // Run the actors needed for `selectedFields` over `urls`, returning per-actor
@@ -530,6 +557,10 @@ async function scrapeUrls(urls, selectedFields) {
 
 const jobs = new Map();
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function randomId() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
@@ -541,62 +572,125 @@ async function processJob(jobId, inputs, selectedFields) {
   const fallbackMap = new Map();
   const commentsMap = new Map();
   const batchSize = Math.max(1, CONFIG.BATCH_SIZE);
-  const totalBatches = Math.ceil(inputs.length / batchSize);
 
-  for (let b = 0; b < totalBatches; b++) {
-    const batch = inputs.slice(b * batchSize, (b + 1) * batchSize);
-
-    // Determine which shortcodes in this batch still need scraping.
-    const toScrape = [];
-    const seenThisBatch = new Set();
-    for (const it of batch) {
-      if (!it.shortcode) continue;
-      if (primaryMap.has(it.shortcode) || fallbackMap.has(it.shortcode) || seenThisBatch.has(it.shortcode)) continue;
-      seenThisBatch.add(it.shortcode);
-      toScrape.push(it.url);
-    }
-
-    if (toScrape.length > 0) {
-      const r = await scrapeUrls(toScrape, selectedFields);
-      mergeMap(primaryMap, r.primaryMap);
-      mergeMap(fallbackMap, r.fallbackMap);
-      mergeMap(commentsMap, r.commentsMap);
-      job.costUsd += r.costUsd;
-      job.usedFallback = job.usedFallback || r.usedFallback;
-      job.usedComments = job.usedComments || r.usedComments;
-    }
-
-    // Build rows for this batch in input order (including duplicates + invalid).
-    for (const it of batch) {
-      const row = { URL: it.url };
-      let status = 'ok';
-      let reason = null;
-      if (it.invalid) {
-        status = 'invalid';
-        reason = 'unsupported link (not Instagram)';
-      } else {
-        const p = primaryMap.get(it.shortcode);
-        const fb = fallbackMap.get(it.shortcode);
-        const cm = commentsMap.get(it.shortcode);
-        if (!p && !fb && !cm) {
-          status = 'no data';
-          reason = 'no data (private / deleted / unavailable)';
-        } else if (it.duplicate) {
-          status = 'duplicate';
-        }
-        if (status === 'ok' || status === 'duplicate') {
-          for (const f of selectedFields) row[f.label] = resolveField(f, p, fb, cm);
-        }
-      }
-      job.rows.push(row);
-      job.meta.push({ url: it.url, status, reason });
-    }
-
-    job.batchesDone = b + 1;
-    job.counts.returned = job.meta.filter((m) => m.status === 'ok' || m.status === 'duplicate').length;
-    job.counts.failed = job.meta.filter((m) => m.status === 'invalid' || m.status === 'no data').length;
+  // Unique valid URLs to scrape (first occurrence of each shortcode).
+  const toScrapeUrls = [];
+  const seenSc = new Set();
+  for (const it of inputs) {
+    if (!it.shortcode || it.invalid) continue;
+    if (seenSc.has(it.shortcode)) continue;
+    seenSc.add(it.shortcode);
+    toScrapeUrls.push(it.url);
   }
 
+  const isMissing = (u) => {
+    const sc = extractShortcode(u);
+    return !primaryMap.has(sc) && !fallbackMap.has(sc) && !commentsMap.has(sc);
+  };
+
+  const maxRounds = CONFIG.RETRY_ENABLED ? Math.max(1, CONFIG.RETRY_MAX_ROUNDS) : 1;
+
+  // Split the link list evenly across CONCURRENCY workers. Each worker owns a
+  // chunk and scrapes it (with its own retries) while the others run in
+  // parallel, so the whole job finishes in roughly 1/CONCURRENCY of the time.
+  const concurrency = Math.max(1, Number(process.env.APIFY_CONCURRENCY) || CONFIG.CONCURRENCY);
+  const chunks = [];
+  const perChunk = Math.ceil(toScrapeUrls.length / concurrency);
+  for (let i = 0; i < toScrapeUrls.length; i += perChunk) {
+    chunks.push(toScrapeUrls.slice(i, i + perChunk));
+  }
+  job.batchesTotal = chunks.reduce((n, c) => n + Math.ceil(c.length / batchSize), 0);
+
+  let batchesDone = 0;
+
+  const worker = async (chunk) => {
+    let pending = chunk.slice();
+    let round = 0;
+    while (pending.length > 0 && round < maxRounds) {
+      if (round > 0) {
+        job.retrying = true;
+        if (CONFIG.RETRY_DELAY_MS > 0) await sleep(CONFIG.RETRY_DELAY_MS);
+      }
+
+      for (let i = 0; i < pending.length; i += batchSize) {
+        const batch = pending.slice(i, i + batchSize);
+        const need = batch.filter(isMissing);
+        if (need.length > 0) {
+          try {
+            const r = await scrapeUrls(need, selectedFields);
+            mergeMap(primaryMap, r.primaryMap);
+            mergeMap(fallbackMap, r.fallbackMap);
+            mergeMap(commentsMap, r.commentsMap);
+            job.costUsd += r.costUsd;
+            job.usedFallback = job.usedFallback || r.usedFallback;
+            job.usedComments = job.usedComments || r.usedComments;
+
+            // Validate the output: any URL in this batch that still has no
+            // item is left for the next retry round (never reported as done).
+            const resolved = need.filter((u) => !isMissing(u)).length;
+            if (resolved < need.length) {
+              console.warn(
+                `Batch partially resolved (${resolved}/${need.length}); ` +
+                  `${need.length - resolved} URL(s) will be retried.`
+              );
+            }
+          } catch (err) {
+            // Transient actor failure — leave the batch untouched so the retry
+            // loop picks it back up instead of killing the whole job.
+            console.warn(
+              `Batch scrape failed (${need.length} URL(s)); will retry: ` +
+                `${(err && err.message) || err}`
+            );
+          }
+        }
+        batchesDone++;
+        job.batchesDone = Math.min(batchesDone, job.batchesTotal);
+        if (CONFIG.BATCH_DELAY_MS > 0 && i + batchSize < pending.length) {
+          await sleep(CONFIG.BATCH_DELAY_MS);
+        }
+      }
+
+      pending = pending.filter(isMissing);
+      round++;
+    }
+    return pending.length;
+  };
+
+  // Run all workers in parallel; sum their leftover (still-missing) counts.
+  const leftovers = await Promise.all(chunks.map(worker));
+  job.remaining = leftovers.reduce((a, b) => a + b, 0);
+  job.batchesDone = job.batchesTotal;
+  job.retrying = false;
+
+  // Build rows for all inputs in original order (duplicates + invalid kept).
+  for (const it of inputs) {
+    const row = { URL: it.url };
+    let status = 'ok';
+    let reason = null;
+    if (it.invalid) {
+      status = 'invalid';
+      reason = 'unsupported link (not Instagram)';
+    } else {
+      const p = primaryMap.get(it.shortcode);
+      const fb = fallbackMap.get(it.shortcode);
+      const cm = commentsMap.get(it.shortcode);
+      if (!p && !fb && !cm) {
+        status = 'no data';
+        reason = 'no data (private / deleted / unavailable)';
+      } else if (it.duplicate) {
+        status = 'duplicate';
+      }
+      if (status === 'ok' || status === 'duplicate') {
+        for (const f of selectedFields) row[f.label] = resolveField(f, p, fb, cm);
+      }
+    }
+    job.rows.push(row);
+    job.meta.push({ url: it.url, status, reason });
+  }
+
+  job.counts.returned = job.meta.filter((m) => m.status === 'ok' || m.status === 'duplicate').length;
+  job.counts.failed = job.meta.filter((m) => m.status === 'invalid' || m.status === 'no data').length;
+  job.batchesDone = job.batchesTotal;
   job.status = 'done';
   job.timing = { totalMs: Date.now() - job.startedAt };
 }
@@ -645,6 +739,8 @@ app.post('/api/scrape', (req, res) => {
       costUsd: 0,
       batchesTotal: Math.ceil(inputs.length / batchSize),
       batchesDone: 0,
+      retrying: false,
+      remaining: 0,
       usedFallback: false,
       usedComments: false,
       startedAt: Date.now(),

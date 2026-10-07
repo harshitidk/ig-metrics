@@ -79,6 +79,13 @@ Some `primary` keys come from Doc 1's prose rather than its sample and are marke
   `shortCode`.
 - At most **two batched actor runs** per submission (never one-run-per-URL). The fallback
   reel scraper only runs when a selected field needs it, or to gap-fill hidden values.
+- Bulk links are split evenly across **`CONCURRENCY` parallel workers** (default 32, matching
+  the Apify plan's max concurrent runs), so a large submission scrapes in a fraction of the
+  time. Bump or lower it in `CONFIG` (or set `APIFY_CONCURRENCY`).
+- Scraping is **self-healing**: failed/empty actor calls are retried (`MAX_RUN_ATTEMPTS` per
+  call, plus `RETRY_MAX_ROUNDS` round-level retries) instead of aborting the job, and output
+  is validated so a URL only counts as done once it actually has data. Rows always come back
+  in the exact order the URLs were pasted.
 - **Views vs plays:** Instagram reels report `plays`, not `views`. On reels `Views` is
   usually blank and `Plays` is populated — tick **Plays** for reels. `views` / `plays` /
   duration are blank on photo posts — expected.

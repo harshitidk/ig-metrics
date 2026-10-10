@@ -170,6 +170,7 @@
 
   tr.row-duplicate td { background: var(--g7); }
   tr.row-invalid td, tr.row-nodata td { color: var(--g5); }
+  tr.row-pending td { color: var(--g4); }
   .row-badge {
     font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--g4);
     border: 1px solid var(--g6); border-radius: 4px; padding: 1px 4px; margin-left: 8px; white-space: nowrap;
@@ -608,6 +609,7 @@
       if (m.status === 'duplicate') tr.className = 'row-duplicate';
       else if (m.status === 'invalid') tr.className = 'row-invalid';
       else if (m.status === 'no data') tr.className = 'row-nodata';
+      else if (m.status === 'pending') tr.className = 'row-pending';
 
       columns.forEach((col) => {
         const td = document.createElement('td');
@@ -623,7 +625,7 @@
         if (col === 'URL' && m.status !== 'ok') {
           const badge = document.createElement('span');
           badge.className = 'row-badge' + (m.status === 'duplicate' ? ' dup' : '');
-          badge.textContent = m.status === 'duplicate' ? 'duplicate' : m.status === 'invalid' ? 'unsupported' : 'no data';
+          badge.textContent = m.status === 'duplicate' ? 'duplicate' : m.status === 'invalid' ? 'unsupported' : m.status === 'pending' ? 'pending' : 'no data';
           badge.title = m.reason || '';
           td.appendChild(badge);
         }

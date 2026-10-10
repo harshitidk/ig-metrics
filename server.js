@@ -49,8 +49,8 @@ const CONFIG = {
   // transient failures; keep retrying until every URL has data, capped only by
   // RETRY_MAX_ROUNDS (a hard safety net for permanently private/deleted URLs).
   RETRY_ENABLED: true,
-  RETRY_MAX_ROUNDS: 50, // total rounds incl. first pass; stops early once all URLs resolve
-  RETRY_DELAY_MS: 8000, // pause before each retry round
+  RETRY_MAX_ROUNDS: 4, // total rounds incl. first pass; stops early once all URLs resolve (or no progress is made)
+  RETRY_DELAY_MS: 1500, // pause before each retry round
 
   // Per-run actor attempts. A single actor call can fail transiently (network
   // blip, Apify hiccup); retry it this many times inside `runActor` before
@@ -603,10 +603,50 @@ async function processJob(jobId, inputs, selectedFields) {
 
   let batchesDone = 0;
 
+  // Rebuild the preview rows/meta/counts from whatever the maps hold so far.
+  // Called after every batch so the frontend can show partial results live,
+  // and once more with `final=true` when the job is done (to mark leftovers).
+  const buildOutput = (final) => {
+    job.rows = [];
+    job.meta = [];
+    for (const it of inputs) {
+      const row = { URL: it.url };
+      let status = 'ok';
+      let reason = null;
+      if (it.invalid) {
+        status = 'invalid';
+        reason = 'unsupported link (not Instagram)';
+      } else {
+        const p = primaryMap.get(it.shortcode);
+        const fb = fallbackMap.get(it.shortcode);
+        const cm = commentsMap.get(it.shortcode);
+        if (!p && !fb && !cm) {
+          if (final) {
+            status = 'no data';
+            reason = 'no data (private / deleted / unavailable)';
+          } else {
+            status = 'pending';
+            reason = 'waiting for scrape…';
+          }
+        } else if (it.duplicate) {
+          status = 'duplicate';
+        }
+        if (status === 'ok' || status === 'duplicate') {
+          for (const f of selectedFields) row[f.label] = resolveField(f, p, fb, cm);
+        }
+      }
+      job.rows.push(row);
+      job.meta.push({ url: it.url, status, reason });
+    }
+    job.counts.returned = job.meta.filter((m) => m.status === 'ok' || m.status === 'duplicate').length;
+    job.counts.failed = job.meta.filter((m) => m.status === 'invalid' || m.status === 'no data').length;
+  };
+
   const worker = async (chunk) => {
     let pending = chunk.slice();
     let round = 0;
     while (pending.length > 0 && round < maxRounds) {
+      const pendingBefore = pending.length;
       if (round > 0) {
         job.retrying = true;
         if (CONFIG.RETRY_DELAY_MS > 0) await sleep(CONFIG.RETRY_DELAY_MS);
@@ -624,6 +664,7 @@ async function processJob(jobId, inputs, selectedFields) {
             job.costUsd += r.costUsd;
             job.usedFallback = job.usedFallback || r.usedFallback;
             job.usedComments = job.usedComments || r.usedComments;
+            buildOutput(false); // expose partial results to the preview
 
             // Validate the output: any URL in this batch that still has no
             // item is left for the next retry round (never reported as done).
@@ -652,6 +693,7 @@ async function processJob(jobId, inputs, selectedFields) {
 
       pending = pending.filter(isMissing);
       round++;
+      if (pending.length === pendingBefore) break; // no progress this round — stop retrying
     }
     return pending.length;
   };
@@ -662,34 +704,9 @@ async function processJob(jobId, inputs, selectedFields) {
   job.batchesDone = job.batchesTotal;
   job.retrying = false;
 
-  // Build rows for all inputs in original order (duplicates + invalid kept).
-  for (const it of inputs) {
-    const row = { URL: it.url };
-    let status = 'ok';
-    let reason = null;
-    if (it.invalid) {
-      status = 'invalid';
-      reason = 'unsupported link (not Instagram)';
-    } else {
-      const p = primaryMap.get(it.shortcode);
-      const fb = fallbackMap.get(it.shortcode);
-      const cm = commentsMap.get(it.shortcode);
-      if (!p && !fb && !cm) {
-        status = 'no data';
-        reason = 'no data (private / deleted / unavailable)';
-      } else if (it.duplicate) {
-        status = 'duplicate';
-      }
-      if (status === 'ok' || status === 'duplicate') {
-        for (const f of selectedFields) row[f.label] = resolveField(f, p, fb, cm);
-      }
-    }
-    job.rows.push(row);
-    job.meta.push({ url: it.url, status, reason });
-  }
+  // Build final rows for all inputs in original order (duplicates + invalid kept).
+  buildOutput(true);
 
-  job.counts.returned = job.meta.filter((m) => m.status === 'ok' || m.status === 'duplicate').length;
-  job.counts.failed = job.meta.filter((m) => m.status === 'invalid' || m.status === 'no data').length;
   job.batchesDone = job.batchesTotal;
   job.status = 'done';
   job.timing = { totalMs: Date.now() - job.startedAt };

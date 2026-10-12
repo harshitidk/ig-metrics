@@ -38,6 +38,13 @@
   h1 { font-size: 22px; letter-spacing: 0.02em; margin: 0; font-weight: 700; }
   .subtitle { color: var(--g4); margin: 2px 0 0; font-size: 13px; }
 
+  .mode-toggle { display: inline-flex; gap: 4px; margin-top: 12px; border: 1px solid var(--g6); border-radius: 8px; padding: 3px; background: var(--g7); }
+  .mode-btn {
+    padding: 6px 16px; font-size: 12px; font-weight: 600; letter-spacing: 0.02em;
+    background: transparent; color: var(--g3); border: none; border-radius: 6px; cursor: pointer;
+  }
+  .mode-btn.active { background: var(--black); color: var(--white); }
+
   .top { display: grid; grid-template-columns: 360px 1fr; gap: 32px; align-items: start; }
 
   .micro {
@@ -190,12 +197,16 @@
         <img src="/Logo.png" alt="IG Metrics" class="logo" />
         <h1>IG METRICS</h1>
       </div>
-      <p class="subtitle">paste urls &rarr; pick fields &rarr; copy to sheets</p>
+      <p class="subtitle" id="subtitle">paste urls &rarr; pick fields &rarr; copy to sheets</p>
+      <div class="mode-toggle" role="tablist" aria-label="Scrape mode">
+        <button class="mode-btn active" id="mode-posts" data-mode="posts">Posts</button>
+        <button class="mode-btn" id="mode-profile" data-mode="profile">Profiles</button>
+      </div>
     </header>
 
     <div class="top">
       <section class="input-col">
-        <label class="micro" for="urls">Instagram URLs</label>
+        <label class="micro" for="urls" id="input-label">Instagram URLs</label>
         <textarea id="urls" placeholder="Paste Instagram URLs — one per line (commas/spaces also fine)"></textarea>
         <div class="run-row">
           <button class="btn" id="run">Run</button>
@@ -256,11 +267,16 @@
     copy: $('copy'),
     copyCol: $('copy-col'),
     tsvHolder: $('tsv-holder'),
+    subtitle: $('subtitle'),
+    inputLabel: $('input-label'),
+    modePosts: $('mode-posts'),
+    modeProfile: $('mode-profile'),
   };
 
+  let mode = 'posts';
   let fields = [];
   const fieldByKey = {};
-  const fieldByLabel = { URL: { type: 'url' } };
+  let fieldByLabel = { URL: { type: 'url' } };
   const selected = new Set();
 
   // result state
@@ -276,15 +292,20 @@
   let pollTimer = null;
   let copyTimer = null;
 
-  async function init() {
+  function firstColLabel() { return mode === 'profile' ? 'Input' : 'URL'; }
+
+  async function loadFields() {
     try {
-      const res = await fetch('/api/fields');
+      const res = await fetch('/api/fields?mode=' + mode);
       if (!res.ok) throw new Error('Could not load field list.');
       fields = await res.json();
     } catch (e) {
       showError('Could not load fields from the server.');
       return;
     }
+    for (const k in fieldByKey) delete fieldByKey[k];
+    for (const k in fieldByLabel) delete fieldByLabel[k];
+    fieldByLabel[firstColLabel()] = { type: mode === 'profile' ? 'text' : 'url' };
     fields.forEach((f) => {
       fieldByKey[f.key] = f;
       fieldByLabel[f.label] = f;
@@ -292,6 +313,39 @@
     });
     renderGroups();
   }
+
+  async function init() {
+    await loadFields();
+  }
+
+  function setMode(next) {
+    if (next === mode) return;
+    mode = next;
+    selected.clear();
+    els.modePosts.classList.toggle('active', mode === 'posts');
+    els.modeProfile.classList.toggle('active', mode === 'profile');
+    if (mode === 'profile') {
+      els.subtitle.textContent = 'paste usernames \u2192 pick fields \u2192 copy to sheets';
+      els.inputLabel.textContent = 'Instagram usernames';
+      els.urls.placeholder = 'Paste Instagram usernames — one per line (profile URLs / IDs also fine)';
+    } else {
+      els.subtitle.textContent = 'paste urls \u2192 pick fields \u2192 copy to sheets';
+      els.inputLabel.textContent = 'Instagram URLs';
+      els.urls.placeholder = 'Paste Instagram URLs — one per line (commas/spaces also fine)';
+    }
+    // clear any previous run's results when switching modes
+    columns = []; rows = []; meta = []; costUsd = 0;
+    sortCol = null; sortDir = null; jobId = null;
+    stopPolling();
+    els.empty.classList.remove('hidden');
+    els.results.classList.add('hidden');
+    els.counts.innerHTML = '';
+    clearError();
+    loadFields();
+  }
+
+  els.modePosts.addEventListener('click', () => setMode('posts'));
+  els.modeProfile.addEventListener('click', () => setMode('profile'));
 
   function makeFieldLabel(f) {
     const label = document.createElement('label');
@@ -327,6 +381,12 @@
       badge.className = 'badge';
       badge.textContent = 'reel scraper';
       badge.title = 'selecting this runs the second scraper over all URLs (extra Apify cost)';
+      label.appendChild(badge);
+    } else if (f.group === 'About') {
+      const badge = document.createElement('span');
+      badge.className = 'badge';
+      badge.textContent = 'paid';
+      badge.title = 'requires the paid "about" add-on (enable PROFILE_INCLUDE_ABOUT in server.js)';
       label.appendChild(badge);
     }
 
@@ -459,9 +519,10 @@
   function fmtCost(usd) { return '$' + (Number(usd) || 0).toFixed(4); }
 
   function setRunning(running, n) {
+    const noun = mode === 'profile' ? 'profiles' : 'URLs';
     if (running) {
       els.run.disabled = true;
-      els.run.innerHTML = '<span class="spinner"></span> Scraping ' + n + ' URLs…';
+      els.run.innerHTML = '<span class="spinner"></span> Scraping ' + n + ' ' + noun + '…';
     } else {
       els.run.disabled = false;
       els.run.textContent = 'Run';
@@ -474,7 +535,10 @@
     clearError();
     const tokens = parseUrlTokens();
     const keys = Array.from(selected);
-    if (tokens.length === 0) { showError('Paste at least one Instagram URL first.'); return; }
+    if (tokens.length === 0) {
+      showError(mode === 'profile' ? 'Paste at least one Instagram username first.' : 'Paste at least one Instagram URL first.');
+      return;
+    }
     if (keys.length === 0) { showError('Pick at least one field.'); return; }
 
     stopPolling();
@@ -489,14 +553,23 @@
       const res = await fetch('/api/scrape', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ urls: tokens, selected: keys }),
+        body: JSON.stringify({ mode, urls: tokens, selected: keys }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Scrape failed.');
-      jobId = data.jobId;
-      els.results.classList.remove('hidden');
-      poll();
-      pollTimer = setInterval(poll, 700);
+      if (data.jobId) {
+        jobId = data.jobId;
+        els.results.classList.remove('hidden');
+        poll();
+        pollTimer = setInterval(poll, 700);
+      } else {
+        // Synchronous result (Vercel serverless) — the full output is in the
+        // response, no polling needed.
+        jobId = null;
+        els.results.classList.remove('hidden');
+        applyJob(data);
+        setRunning(false);
+      }
     } catch (e) {
       setRunning(false);
       showError(e.message || 'Something went wrong.');
@@ -547,7 +620,7 @@
     txt += ' · <span class="cost">' + fmtCost(costUsd) + '</span>';
     if (job.status === 'running') {
       txt += ' · scraping ' + job.batchesDone + '/' + job.batchesTotal + ' batches';
-      if (job.retrying) txt += ' · retrying ' + (job.remaining || 0) + ' missing URL' + ((job.remaining || 0) === 1 ? '' : 's');
+      if (job.retrying) txt += ' · retrying ' + (job.remaining || 0) + ' missing ' + (mode === 'profile' ? 'profile' : 'URL') + ((job.remaining || 0) === 1 ? '' : 's');
     } else if (job.timing) {
       txt += ' · ' + fmtDur(job.timing.totalMs) + ' total';
     }
@@ -622,7 +695,7 @@
         } else {
           td.textContent = val;
         }
-        if (col === 'URL' && m.status !== 'ok') {
+        if (col === firstColLabel() && m.status !== 'ok') {
           const badge = document.createElement('span');
           badge.className = 'row-badge' + (m.status === 'duplicate' ? ' dup' : '');
           badge.textContent = m.status === 'duplicate' ? 'duplicate' : m.status === 'invalid' ? 'unsupported' : m.status === 'pending' ? 'pending' : 'no data';

@@ -33,6 +33,16 @@ const CONFIG = {
   COMMENTS_MATCH_KEY: 'shortcode', // TODO: verify which field carries the post shortcode
   COMMENTS_ENABLED: false, // flip to true once the actor is configured
 
+  // PROFILE = Instagram Profile Scraper. Takes an ARRAY of usernames (or
+  // profile URLs / numeric IDs) and returns followers, following, posts, bio,
+  // verification status, category, contact links, related profiles and latest
+  // posts. Used by the "Profiles" mode.
+  PROFILE_ACTOR_ID: 'apify/instagram-profile-scraper', // verified slug
+  PROFILE_INPUT_KEY: 'usernames', // verified against live input schema — bulk array field is `usernames`
+  PROFILE_MATCH_KEY: 'username', // results are matched back to inputs by username
+  PROFILE_ENABLED: true,
+  PROFILE_INCLUDE_ABOUT: false, // true = paid "about" add-on (join date, country, username-change count)
+
   // How many input links to send per actor run. Larger batches mean fewer
   // actor-start charges and let the actor pace its own requests (Instagram
   // rate-limits bursts of small runs far more aggressively).
@@ -180,6 +190,49 @@ const FIELD_CATALOG = [
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
+// PROFILE FIELD CATALOG — for the "Profiles" mode.
+//
+// Same shape/meaning as FIELD_CATALOG, except each entry uses a single `path`
+// (dot-separated) into the profile-scraper item instead of primary/fallback/
+// comments. Paths verified against the live actor sample output (NASA).
+// ─────────────────────────────────────────────────────────────────────────────
+const PROFILE_FIELD_CATALOG = [
+  // ── Identity ─────────────────────────────────────────────────────────
+  { key: 'username',       label: 'Username',          group: 'Identity', bucket: 'recommended', type: 'text',   default: true,  path: 'username' },
+  { key: 'fullName',       label: 'Full name',         group: 'Identity', bucket: 'recommended', type: 'text',   default: true,  path: 'fullName' },
+  { key: 'profileUrl',     label: 'Profile URL',       group: 'Identity', bucket: 'recommended', type: 'url',    default: false, path: 'url' },
+  { key: 'profileId',      label: 'Profile ID',        group: 'Identity', bucket: 'advanced',    type: 'text',   default: false, path: 'id' },
+  { key: 'biography',      label: 'Bio',               group: 'Identity', bucket: 'recommended', type: 'text',   default: false, path: 'biography' }, // SANITIZE newlines
+  { key: 'profilePic',     label: 'Profile pic URL',   group: 'Identity', bucket: 'advanced',    type: 'url',    default: false, path: 'profilePicUrl' },
+  { key: 'profilePicHD',   label: 'Profile pic HD',    group: 'Identity', bucket: 'advanced',    type: 'url',    default: false, path: 'profilePicUrlHD' },
+
+  // ── Metrics ──────────────────────────────────────────────────────────
+  { key: 'followers',      label: 'Followers',         group: 'Metrics',  bucket: 'recommended', type: 'number', default: true,  path: 'followersCount' },
+  { key: 'following',      label: 'Following',         group: 'Metrics',  bucket: 'recommended', type: 'number', default: true,  path: 'followsCount' },
+  { key: 'posts',          label: 'Posts',             group: 'Metrics',  bucket: 'recommended', type: 'number', default: true,  path: 'postsCount' },
+  { key: 'highlights',     label: 'Highlights',        group: 'Metrics',  bucket: 'advanced',    type: 'number', default: false, path: 'highlightReelCount' },
+  { key: 'igtvVideos',     label: 'IGTV videos',       group: 'Metrics',  bucket: 'advanced',    type: 'number', default: false, path: 'igtvVideoCount' },
+
+  // ── Status / classification ──────────────────────────────────────────
+  { key: 'isVerified',     label: 'Verified',          group: 'Status',   bucket: 'recommended', type: 'bool',   default: false, path: 'verified' },
+  { key: 'isPrivate',      label: 'Private',           group: 'Status',   bucket: 'recommended', type: 'bool',   default: false, path: 'private' },
+  { key: 'isBusiness',     label: 'Business account',  group: 'Status',   bucket: 'advanced',    type: 'bool',   default: false, path: 'isBusinessAccount' },
+  { key: 'category',       label: 'Business category', group: 'Status',   bucket: 'advanced',    type: 'text',   default: false, path: 'businessCategoryName' },
+  { key: 'joinedRecently', label: 'Recently joined',   group: 'Status',   bucket: 'advanced',    type: 'bool',   default: false, path: 'joinedRecently' },
+  { key: 'hasChannel',     label: 'Has channel',       group: 'Status',   bucket: 'advanced',    type: 'bool',   default: false, path: 'hasChannel' },
+
+  // ── Contact ──────────────────────────────────────────────────────────
+  { key: 'externalUrl',    label: 'External URL',      group: 'Contact',  bucket: 'recommended', type: 'url',    default: false, path: 'externalUrl' },
+  { key: 'externalUrls',   label: 'External links',    group: 'Contact',  bucket: 'advanced',    type: 'list',   default: false, path: 'externalUrls', sub: 'url' },
+
+  // ── About (paid add-on; only populated when PROFILE_INCLUDE_ABOUT=true) ─
+  { key: 'joinDate',       label: 'Join date',         group: 'About',    bucket: 'advanced',    type: 'text',   default: false, path: 'about.date_joined' },
+  { key: 'country',        label: 'Country',           group: 'About',    bucket: 'advanced',    type: 'text',   default: false, path: 'about.country' },
+  { key: 'formerUsernames',label: 'Username changes',  group: 'About',    bucket: 'advanced',    type: 'number', default: false, path: 'about.former_usernames' },
+  { key: 'dateVerified',   label: 'Date verified',     group: 'About',    bucket: 'advanced',    type: 'text',   default: false, path: 'about.date_verified' },
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Helpers — path extraction + defensive value formatting.
 // Every cell must end up free of tabs and newlines so the TSV paste spreads
 // across Google Sheets cells instead of breaking rows.
@@ -189,6 +242,35 @@ function extractShortcode(url) {
   if (typeof url !== 'string') return null;
   const m = url.match(/instagram\.com\/(?:p|reel|reels|tv)\/([A-Za-z0-9_-]+)/i);
   return m ? m[1] : null;
+}
+
+// Turn a raw profile input (username, @handle, profile URL, or numeric ID)
+// into a normalised match key. Returns { username } or { id } or null.
+function extractProfileKey(input) {
+  if (typeof input !== 'string') return null;
+  let s = input.trim();
+  if (!s) return null;
+
+  // Profile URL — pull the path segment after instagram.com/
+  const urlMatch = s.match(/instagram\.com\/([A-Za-z0-9._]+)/i);
+  if (urlMatch) s = urlMatch[1];
+  s = s.replace(/^@/, '').replace(/\/.*$/, '').trim();
+  if (!s) return null;
+
+  // Numeric profile ID
+  if (/^\d+$/.test(s)) return { id: s };
+  // Username (alphanumeric + . _ , up to 30 chars)
+  if (/^[A-Za-z0-9._]{1,30}$/.test(s)) return { username: s.toLowerCase() };
+  return null;
+}
+
+// Keys under which a profile item can be looked up (username and numeric id).
+function profileItemKeys(item) {
+  if (!item) return [];
+  const keys = [];
+  if (item.username != null) keys.push(String(item.username).toLowerCase());
+  if (item.id != null) keys.push(String(item.id));
+  return keys;
 }
 
 // Dot-path getter that never throws on missing keys.
@@ -393,6 +475,24 @@ function parseInputs(raw) {
   return inputs;
 }
 
+function parseProfileInputs(raw) {
+  const tokens = String(raw || '').split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+  const seen = new Set();
+  const inputs = [];
+  for (const t of tokens) {
+    const key = extractProfileKey(t);
+    if (key) {
+      const matchKey = key.username || key.id;
+      const duplicate = seen.has(matchKey);
+      seen.add(matchKey);
+      inputs.push({ url: t, key, matchKey, duplicate, invalid: false });
+    } else {
+      inputs.push({ url: t, key: null, matchKey: null, duplicate: false, invalid: true });
+    }
+  }
+  return inputs;
+}
+
 function itemShortcode(item, matchKey) {
   if (!item) return null;
   const candidates = [matchKey, 'shortcode', 'shortCode', 'code'].filter(Boolean);
@@ -434,7 +534,7 @@ function getClient() {
   return new ApifyClient({ token });
 }
 
-async function runActor(actorId, inputKey, urls) {
+async function runActorWithInput(actorId, input) {
   if (!actorId || /REPLACE/i.test(actorId)) {
     throw new Error('An actor ID is not configured (see the CONFIG block in server.js).');
   }
@@ -443,7 +543,7 @@ async function runActor(actorId, inputKey, urls) {
   let lastErr;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      const run = await client.actor(actorId).call({ [inputKey]: urls });
+      const run = await client.actor(actorId).call(input);
       if (!run || !run.defaultDatasetId) {
         throw new Error(`Actor ${actorId} returned no dataset.`);
       }
@@ -458,6 +558,10 @@ async function runActor(actorId, inputKey, urls) {
     }
   }
   throw lastErr;
+}
+
+async function runActor(actorId, inputKey, urls) {
+  return runActorWithInput(actorId, { [inputKey]: urls });
 }
 
 // Run the actors needed for `selectedFields` over `urls`, returning per-actor
@@ -565,8 +669,36 @@ function randomId() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
-async function processJob(jobId, inputs, selectedFields) {
-  const job = jobs.get(jobId);
+// Build the initial job object shared by both the streaming (local) and
+// synchronous (Vercel) paths.
+function createJob(mode, inputs, selectedFields) {
+  const batchSize = Math.max(1, CONFIG.BATCH_SIZE);
+  const firstCol = mode === 'profile' ? 'Input' : 'URL';
+  return {
+    status: 'running',
+    columns: [firstCol, ...selectedFields.map((f) => f.label)],
+    rows: [],
+    meta: [],
+    counts: {
+      requested: inputs.length,
+      returned: 0,
+      failed: 0,
+      duplicates: inputs.filter((i) => i.duplicate).length,
+    },
+    costUsd: 0,
+    batchesTotal: Math.ceil(inputs.length / batchSize),
+    batchesDone: 0,
+    retrying: false,
+    remaining: 0,
+    usedFallback: false,
+    usedComments: false,
+    startedAt: Date.now(),
+    timing: null,
+    error: null,
+  };
+}
+
+async function processJob(job, inputs, selectedFields) {
   if (!job) return;
   const primaryMap = new Map();
   const fallbackMap = new Map();
@@ -610,7 +742,7 @@ async function processJob(jobId, inputs, selectedFields) {
     job.rows = [];
     job.meta = [];
     for (const it of inputs) {
-      const row = { URL: it.url };
+      const row = { [job.columns[0]]: it.url };
       let status = 'ok';
       let reason = null;
       if (it.invalid) {
@@ -713,6 +845,143 @@ async function processJob(jobId, inputs, selectedFields) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Profile mode — a simpler single-actor path (usernames in, profile rows out).
+// Shares the job shape (streaming, batching, concurrency, retry) with the post
+// flow above, but matches by username/id instead of shortcode and has no
+// fallback/comments actors.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function resolveProfileField(field, item) {
+  if (!item) return '';
+  const v = getPath(item, field.path);
+  return formatValue(field, v);
+}
+
+async function scrapeProfiles(keys) {
+  const input = { [CONFIG.PROFILE_INPUT_KEY]: keys.map((k) => k.value) };
+  if (CONFIG.PROFILE_INCLUDE_ABOUT) input.includeAboutSection = true;
+  const { items, cost } = await runActorWithInput(CONFIG.PROFILE_ACTOR_ID, input);
+  const map = new Map();
+  for (const item of items || []) {
+    for (const k of profileItemKeys(item)) {
+      if (k && !map.has(k)) map.set(k, item);
+    }
+  }
+  return { map, cost };
+}
+
+async function processProfileJob(job, inputs, selectedFields) {
+  if (!job) return;
+  const profileMap = new Map();
+  const batchSize = Math.max(1, CONFIG.BATCH_SIZE);
+
+  // Unique valid profiles to scrape (first occurrence of each username/id).
+  const toScrape = [];
+  const seen = new Set();
+  for (const it of inputs) {
+    if (!it.key || it.invalid) continue;
+    if (seen.has(it.matchKey)) continue;
+    seen.add(it.matchKey);
+    toScrape.push({ value: it.key.username || it.key.id, matchKey: it.matchKey });
+  }
+
+  const isMissing = (k) => !profileMap.has(k.matchKey);
+
+  const maxRounds = CONFIG.RETRY_ENABLED ? Math.max(1, CONFIG.RETRY_MAX_ROUNDS) : 1;
+
+  const concurrency = Math.max(1, Number(process.env.APIFY_CONCURRENCY) || CONFIG.CONCURRENCY);
+  const chunks = [];
+  const perChunk = Math.ceil(toScrape.length / concurrency);
+  for (let i = 0; i < toScrape.length; i += perChunk) {
+    chunks.push(toScrape.slice(i, i + perChunk));
+  }
+  job.batchesTotal = chunks.reduce((n, c) => n + Math.ceil(c.length / batchSize), 0);
+
+  let batchesDone = 0;
+
+  const buildOutput = (final) => {
+    job.rows = [];
+    job.meta = [];
+    for (const it of inputs) {
+      const row = { [job.columns[0]]: it.url };
+      let status = 'ok';
+      let reason = null;
+      if (it.invalid) {
+        status = 'invalid';
+        reason = 'unsupported input (not an Instagram username/URL/ID)';
+      } else {
+        const item = profileMap.get(it.matchKey);
+        if (!item) {
+          if (final) {
+            status = 'no data';
+            reason = 'no data (private / deleted / unavailable)';
+          } else {
+            status = 'pending';
+            reason = 'waiting for scrape…';
+          }
+        } else if (it.duplicate) {
+          status = 'duplicate';
+        }
+        if (status === 'ok' || status === 'duplicate') {
+          for (const f of selectedFields) row[f.label] = resolveProfileField(f, item);
+        }
+      }
+      job.rows.push(row);
+      job.meta.push({ url: it.url, status, reason });
+    }
+    job.counts.returned = job.meta.filter((m) => m.status === 'ok' || m.status === 'duplicate').length;
+    job.counts.failed = job.meta.filter((m) => m.status === 'invalid' || m.status === 'no data').length;
+  };
+
+  const worker = async (chunk) => {
+    let pending = chunk.slice();
+    let round = 0;
+    while (pending.length > 0 && round < maxRounds) {
+      const pendingBefore = pending.length;
+      if (round > 0) {
+        job.retrying = true;
+        if (CONFIG.RETRY_DELAY_MS > 0) await sleep(CONFIG.RETRY_DELAY_MS);
+      }
+      for (let i = 0; i < pending.length; i += batchSize) {
+        const batch = pending.slice(i, i + batchSize);
+        const need = batch.filter(isMissing);
+        if (need.length > 0) {
+          try {
+            const r = await scrapeProfiles(need);
+            for (const [k, item] of r.map) if (!profileMap.has(k)) profileMap.set(k, item);
+            job.costUsd += r.cost;
+            buildOutput(false);
+          } catch (err) {
+            console.warn(
+              `Profile batch scrape failed (${need.length}); will retry: ` +
+                `${(err && err.message) || err}`
+            );
+          }
+        }
+        batchesDone++;
+        job.batchesDone = Math.min(batchesDone, job.batchesTotal);
+        if (CONFIG.BATCH_DELAY_MS > 0 && i + batchSize < pending.length) {
+          await sleep(CONFIG.BATCH_DELAY_MS);
+        }
+      }
+      pending = pending.filter(isMissing);
+      round++;
+      if (pending.length === pendingBefore) break;
+    }
+    return pending.length;
+  };
+
+  const leftovers = await Promise.all(chunks.map(worker));
+  job.remaining = leftovers.reduce((a, b) => a + b, 0);
+  job.batchesDone = job.batchesTotal;
+  job.retrying = false;
+  buildOutput(true);
+  job.batchesDone = job.batchesTotal;
+  job.status = 'done';
+  job.timing = { totalMs: Date.now() - job.startedAt };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Express app
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -721,59 +990,62 @@ app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/api/fields', (req, res) => {
-  res.json(FIELD_CATALOG);
+  const mode = req.query.mode === 'profile' ? 'profile' : 'posts';
+  res.json(mode === 'profile' ? PROFILE_FIELD_CATALOG : FIELD_CATALOG);
 });
 
-app.post('/api/scrape', (req, res) => {
+app.post('/api/scrape', async (req, res) => {
   try {
     const body = req.body || {};
+    const mode = body.mode === 'profile' ? 'profile' : 'posts';
+    const catalog = mode === 'profile' ? PROFILE_FIELD_CATALOG : FIELD_CATALOG;
     const selectedKeys = Array.isArray(body.selected) ? body.selected : [];
     const selectedFields = selectedKeys
-      .map((k) => FIELD_CATALOG.find((f) => f.key === k))
+      .map((k) => catalog.find((f) => f.key === k))
       .filter(Boolean);
     if (selectedFields.length === 0) {
       return res.status(400).json({ error: 'Select at least one field.' });
     }
 
-    const inputs = parseInputs(body.urls);
-    if (!inputs.some((i) => i.shortcode)) {
-      return res.status(400).json({ error: 'No valid Instagram URLs found. Paste post/reel/tv URLs.' });
+    const inputs = mode === 'profile' ? parseProfileInputs(body.urls) : parseInputs(body.urls);
+    const hasValid = mode === 'profile'
+      ? inputs.some((i) => i.key)
+      : inputs.some((i) => i.shortcode);
+    if (!hasValid) {
+      return res.status(400).json({
+        error: mode === 'profile'
+          ? 'No valid Instagram profiles found. Paste usernames (or profile URLs/IDs).'
+          : 'No valid Instagram URLs found. Paste post/reel/tv URLs.',
+      });
+    }
+
+    const job = createJob(mode, inputs, selectedFields);
+    const run = mode === 'profile'
+      ? processProfileJob(job, inputs, selectedFields)
+      : processJob(job, inputs, selectedFields);
+
+    // On Vercel the process is serverless and short-lived: there is no shared
+    // memory for a job map and no guarantee the function stays alive after the
+    // response is sent. So we scrape synchronously and return the full result
+    // in this one response. Locally we keep the streaming job + poll flow.
+    if (process.env.VERCEL) {
+      await run;
+      if (job.status === 'error') {
+        return res.status(500).json({ error: job.error || 'Scrape failed.' });
+      }
+      return res.json(job);
     }
 
     const jobId = randomId();
-    const batchSize = Math.max(1, CONFIG.BATCH_SIZE);
-    jobs.set(jobId, {
-      status: 'running',
-      columns: ['URL', ...selectedFields.map((f) => f.label)],
-      rows: [],
-      meta: [],
-      counts: {
-        requested: inputs.length,
-        returned: 0,
-        failed: 0,
-        duplicates: inputs.filter((i) => i.duplicate).length,
-      },
-      costUsd: 0,
-      batchesTotal: Math.ceil(inputs.length / batchSize),
-      batchesDone: 0,
-      retrying: false,
-      remaining: 0,
-      usedFallback: false,
-      usedComments: false,
-      startedAt: Date.now(),
-      timing: null,
-      error: null,
-    });
-
-    processJob(jobId, inputs, selectedFields).catch((err) => {
-      const job = jobs.get(jobId);
-      if (job) {
-        job.status = 'error';
-        job.error = err && err.message ? err.message : 'Scrape failed.';
+    jobs.set(jobId, job);
+    run.catch((err) => {
+      const j = jobs.get(jobId);
+      if (j) {
+        j.status = 'error';
+        j.error = err && err.message ? err.message : 'Scrape failed.';
       }
     });
-
-    res.json({ jobId, batchesTotal: jobs.get(jobId).batchesTotal });
+    res.json({ jobId, batchesTotal: job.batchesTotal });
   } catch (err) {
     res.status(400).json({ error: err && err.message ? err.message : 'Scrape failed.' });
   }

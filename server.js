@@ -148,6 +148,7 @@ const FIELD_CATALOG = [
   // ── Creator / owner ──────────────────────────────────────────────────
   { key: 'ownerUsername',  label: 'Owner username',         group: 'Creator', bucket: 'recommended', type: 'text',   default: false, primary: 'user.username',           fallback: 'ownerUsername' },
   { key: 'ownerFullName',  label: 'Owner full name',        group: 'Creator', bucket: 'recommended', type: 'text',   default: false, primary: 'user.full_name',           fallback: 'ownerFullName' },
+  { key: 'ownerProfileUrl',label: 'Owner profile URL',      group: 'Creator', bucket: 'recommended', type: 'url',    default: false, primary: 'user.username',           fallback: 'ownerUsername', derive: 'profileUrl' },
   { key: 'ownerId',        label: 'Owner ID',               group: 'Creator', bucket: 'advanced',    type: 'text',   default: false, primary: 'user.id',                  fallback: 'ownerId' },
   { key: 'ownerVerified',  label: 'Owner verified',         group: 'Creator', bucket: 'advanced',    type: 'bool',   default: false, primary: 'user.is_verified',          fallback: null },
   { key: 'ownerFollowers', label: 'Owner followers',        group: 'Creator', bucket: 'advanced',    type: 'number', default: false, primary: 'metrics.user_follower_count', fallback: null }, // often null
@@ -432,6 +433,10 @@ function formatValue(field, v) {
 
 // Pick the value for one field from the actor items, then format it.
 function resolveField(field, primaryItem, fallbackItem, commentsItem) {
+  if (field.derive === 'profileUrl') {
+    const username = getPath(primaryItem, 'user.username') || getPath(fallbackItem, 'ownerUsername');
+    return username ? 'https://www.instagram.com/' + sanitize(username) + '/' : '';
+  }
   let v;
   if (field.comments != null) {
     v = getPath(commentsItem, field.comments);

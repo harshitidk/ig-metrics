@@ -5,6 +5,18 @@ fields you want from a full catalog of everything the two Apify scrapers return,
 them, shows a preview, and gives you a one-click copy that pastes cleanly across Google
 Sheets cells (tab-separated, so it spreads into columns instead of one cell).
 
+## X (Twitter) tab
+
+The page has **Instagram** and **X (Twitter)** tabs. The X tab:
+
+- Takes X post links (`x.com/<user>/status/<id>`, any `?s=20&t=…` tail is fine) or bare tweet IDs.
+- Uses one Apify actor, `scrape.badger/twitter-tweets-scraper` (mode "Get a Few Tweets"). It returns
+  the post metrics **and** the author's profile stats, so there is no fallback or profile scraper.
+- Lives in `x.js` (`X_CONFIG`, `X_FIELD_CATALOG` with 37 fields, link parsing, the job). `server.js`
+  only routes `mode: 'x'` to it; Instagram behaviour is unchanged.
+- Shares = reposts + quotes (both also available as separate fields). Bookmarks is X's "saves".
+- Uses the same `APIFY_TOKEN`. Test-run cost: ~$0.15 per 1,000 tweets.
+
 ## Stack
 
 - **Node.js 18+** + **Express** — single backend file (`server.js`).

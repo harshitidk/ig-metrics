@@ -990,20 +990,26 @@ async function processProfileJob(job, inputs, selectedFields) {
 // Express app
 // ─────────────────────────────────────────────────────────────────────────────
 
+// X (Twitter) mode lives in x.js; it reuses this file's actor runner and formatters.
+const { X_FIELD_CATALOG, parseXInputs, processXJob } = require('./x')({ runActorWithInput, getPath, formatValue, sleep });
+
+const MODES = ['posts', 'profile', 'x'];
+const CATALOGS = { posts: FIELD_CATALOG, profile: PROFILE_FIELD_CATALOG, x: X_FIELD_CATALOG };
+
 const app = express();
 app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/api/fields', (req, res) => {
-  const mode = req.query.mode === 'profile' ? 'profile' : 'posts';
-  res.json(mode === 'profile' ? PROFILE_FIELD_CATALOG : FIELD_CATALOG);
+  const mode = MODES.includes(req.query.mode) ? req.query.mode : 'posts';
+  res.json(CATALOGS[mode]);
 });
 
 app.post('/api/scrape', async (req, res) => {
   try {
     const body = req.body || {};
-    const mode = body.mode === 'profile' ? 'profile' : 'posts';
-    const catalog = mode === 'profile' ? PROFILE_FIELD_CATALOG : FIELD_CATALOG;
+    const mode = MODES.includes(body.mode) ? body.mode : 'posts';
+    const catalog = CATALOGS[mode];
     const selectedKeys = Array.isArray(body.selected) ? body.selected : [];
     const selectedFields = selectedKeys
       .map((k) => catalog.find((f) => f.key === k))
@@ -1012,21 +1018,25 @@ app.post('/api/scrape', async (req, res) => {
       return res.status(400).json({ error: 'Select at least one field.' });
     }
 
-    const inputs = mode === 'profile' ? parseProfileInputs(body.urls) : parseInputs(body.urls);
-    const hasValid = mode === 'profile'
-      ? inputs.some((i) => i.key)
+    const inputs = mode === 'profile' ? parseProfileInputs(body.urls)
+      : mode === 'x' ? parseXInputs(body.urls)
+      : parseInputs(body.urls);
+    const hasValid = mode === 'profile' ? inputs.some((i) => i.key)
+      : mode === 'x' ? inputs.some((i) => i.id)
       : inputs.some((i) => i.shortcode);
     if (!hasValid) {
       return res.status(400).json({
         error: mode === 'profile'
           ? 'No valid Instagram profiles found. Paste usernames (or profile URLs/IDs).'
+          : mode === 'x'
+          ? 'No valid X post links found. Paste links like x.com/<user>/status/<id>.'
           : 'No valid Instagram URLs found. Paste post/reel/tv URLs.',
       });
     }
 
     const job = createJob(mode, inputs, selectedFields);
-    const run = mode === 'profile'
-      ? processProfileJob(job, inputs, selectedFields)
+    const run = mode === 'profile' ? processProfileJob(job, inputs, selectedFields)
+      : mode === 'x' ? processXJob(job, inputs, selectedFields)
       : processJob(job, inputs, selectedFields);
 
     // On Vercel the process is serverless and short-lived: there is no shared
@@ -1070,6 +1080,6 @@ if (require.main === module) {
     if (!process.env.APIFY_TOKEN) {
       console.warn('\n⚠  APIFY_TOKEN is not set. /api/fields works, but /api/scrape will fail until you add your token to .env.\n');
     }
-    console.log(`IG Metrics Automator running at http://localhost:${PORT}`);
+    console.log(`Social Metrics (Instagram + X) running at http://localhost:${PORT}`);
   });
 }

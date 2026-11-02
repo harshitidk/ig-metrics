@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <link rel="icon" type="image/png" href="/Logo.png" />
-<title>IG Metrics</title>
+<title>Social Metrics</title>
 <style>
   :root {
     --black: #000;
@@ -38,6 +38,7 @@
   h1 { font-size: 22px; letter-spacing: 0.02em; margin: 0; font-weight: 700; }
   .subtitle { color: var(--g4); margin: 2px 0 0; font-size: 13px; }
 
+  .platform-toggle { margin-right: 8px; }
   .mode-toggle { display: inline-flex; gap: 4px; margin-top: 12px; border: 1px solid var(--g6); border-radius: 8px; padding: 3px; background: var(--g7); }
   .mode-btn {
     padding: 6px 16px; font-size: 12px; font-weight: 600; letter-spacing: 0.02em;
@@ -195,10 +196,14 @@
     <header>
       <div class="brand">
         <img src="/Logo.png" alt="IG Metrics" class="logo" />
-        <h1>IG METRICS</h1>
+        <h1>SOCIAL METRICS</h1>
       </div>
       <p class="subtitle" id="subtitle">paste urls &rarr; pick fields &rarr; copy to sheets</p>
-      <div class="mode-toggle" role="tablist" aria-label="Scrape mode">
+      <div class="mode-toggle platform-toggle" role="tablist" aria-label="Platform">
+        <button class="mode-btn active" id="platform-ig">Instagram</button>
+        <button class="mode-btn" id="platform-x">X (Twitter)</button>
+      </div>
+      <div class="mode-toggle" id="ig-modes" role="tablist" aria-label="Scrape mode">
         <button class="mode-btn active" id="mode-posts" data-mode="posts">Posts</button>
         <button class="mode-btn" id="mode-profile" data-mode="profile">Profiles</button>
       </div>
@@ -271,6 +276,9 @@
     inputLabel: $('input-label'),
     modePosts: $('mode-posts'),
     modeProfile: $('mode-profile'),
+    platformIg: $('platform-ig'),
+    platformX: $('platform-x'),
+    igModes: $('ig-modes'),
   };
 
   let mode = 'posts';
@@ -324,7 +332,14 @@
     selected.clear();
     els.modePosts.classList.toggle('active', mode === 'posts');
     els.modeProfile.classList.toggle('active', mode === 'profile');
-    if (mode === 'profile') {
+    els.platformIg.classList.toggle('active', mode !== 'x');
+    els.platformX.classList.toggle('active', mode === 'x');
+    els.igModes.classList.toggle('hidden', mode === 'x');
+    if (mode === 'x') {
+      els.subtitle.textContent = 'paste X post links → pick fields → copy to sheets';
+      els.inputLabel.textContent = 'X post URLs';
+      els.urls.placeholder = 'Paste X / Twitter post links — one per line (x.com/<user>/status/<id>)';
+    } else if (mode === 'profile') {
       els.subtitle.textContent = 'paste usernames \u2192 pick fields \u2192 copy to sheets';
       els.inputLabel.textContent = 'Instagram usernames';
       els.urls.placeholder = 'Paste Instagram usernames — one per line (profile URLs / IDs also fine)';
@@ -346,6 +361,8 @@
 
   els.modePosts.addEventListener('click', () => setMode('posts'));
   els.modeProfile.addEventListener('click', () => setMode('profile'));
+  els.platformIg.addEventListener('click', () => setMode('posts'));
+  els.platformX.addEventListener('click', () => setMode('x'));
 
   function makeFieldLabel(f) {
     const label = document.createElement('label');
@@ -536,7 +553,7 @@
     const tokens = parseUrlTokens();
     const keys = Array.from(selected);
     if (tokens.length === 0) {
-      showError(mode === 'profile' ? 'Paste at least one Instagram username first.' : 'Paste at least one Instagram URL first.');
+      showError(mode === 'profile' ? 'Paste at least one Instagram username first.' : mode === 'x' ? 'Paste at least one X post link first.' : 'Paste at least one Instagram URL first.');
       return;
     }
     if (keys.length === 0) { showError('Pick at least one field.'); return; }

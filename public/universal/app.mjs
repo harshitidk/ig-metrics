@@ -95,7 +95,16 @@ const loadJob = () => { try { return JSON.parse(localStorage.getItem(JOB_KEY) ||
 let job = null, saveTimer = null;
 const saveNow = () => { try { localStorage.setItem(JOB_KEY, JSON.stringify(job)); } catch (e) { console.warn('resume save failed', e); } };
 const saveJob = () => { clearTimeout(saveTimer); saveTimer = setTimeout(saveNow, 300); };
-const journalFor = (j) => ({ get: (sig) => j.runs[sig], set: (sig, ids) => { j.runs[sig] = ids; saveJob(); }, del: (sig) => { delete j.runs[sig]; saveJob(); } });
+const journalFor = (j) => {
+  // every run is remembered by the links it fetched, so Resume reuses it whatever way links get grouped next time
+  j.idx ||= {};
+  const list = (task, phase) => (j.idx[`${task}|${phase}`] ||= []);
+  return {
+    find: (task, phase, k) => list(task, phase).find((e) => e.keys.includes(k)) || null,
+    add: (task, phase, keys, runIds) => { const e = { task, phase, keys, runIds }; list(task, phase).push(e); saveJob(); return e; },
+    drop: (e) => { const l = list(e.task, e.phase); const i = l.findIndex((x) => x.runIds.join() === e.runIds.join()); if (i >= 0) l.splice(i, 1); saveJob(); },
+  };
+};
 function showResumeBanner() {
   const j = loadJob(), b = $('resume');
   if (!j) { b.classList.add('hidden'); return; }
@@ -135,7 +144,7 @@ $('run').onclick = async () => {
     left != null && plan.total > left ? '\nThis may cost more than what is left this month. Rows after that point will not be filled.' : '',
     '\nStart?'].filter(Boolean).join('\n');
   if (!confirm(msg)) return;
-  startBatch(rows, st, { id: Date.now(), startedAt: Date.now(), extractedAt: null, rows, settings: st, runs: {}, finished: false, limits: lim });
+  startBatch(rows, st, { id: Date.now(), startedAt: Date.now(), extractedAt: null, rows, settings: st, idx: {}, finished: false, limits: lim });
 };
 
 async function startBatch(rows, st, j) {
@@ -158,7 +167,7 @@ async function startBatch(rows, st, j) {
     else if (/technical error/i.test(m)) once('retry', 'A connection problem happened. Trying again automatically…');
     else if (/checking them once more/i.test(m)) once('recheck', 'Some links gave no data. Checking them once more to be sure…');
   };
-  say(Object.keys(j.runs).length ? `Resumed ${rows.length} rows. Finished parts are reused, only the rest is fetched.` : `Started ${rows.length} rows.`);
+  say(Object.values(j.idx || {}).some((l) => l.length) ? `Resumed ${rows.length} rows. Finished parts are reused, only the rest is fetched.` : `Started ${rows.length} rows.`);
   $('bar').style.width = '0%';
   const STAGE = { posts: 'Getting post details', profiles: 'Getting profile details', done: 'Finishing' };
   let shownPct = 0;

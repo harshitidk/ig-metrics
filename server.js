@@ -992,6 +992,8 @@ async function processProfileJob(job, inputs, selectedFields) {
 
 // X (Twitter) mode lives in x.js; it reuses this file's actor runner and formatters.
 const { X_FIELD_CATALOG, parseXInputs, processXJob } = require('./x')({ runActorWithInput, getPath, formatValue, sleep });
+// Universal tab (any platform -> fixed 15-column sheet) lives in universal.js + public/universal*.
+const registerUniversal = require('./universal');
 
 const MODES = ['posts', 'profile', 'x'];
 const CATALOGS = { posts: FIELD_CATALOG, profile: PROFILE_FIELD_CATALOG, x: X_FIELD_CATALOG };
@@ -999,6 +1001,7 @@ const CATALOGS = { posts: FIELD_CATALOG, profile: PROFILE_FIELD_CATALOG, x: X_FI
 const app = express();
 app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
+registerUniversal(app);
 
 app.get('/api/fields', (req, res) => {
   const mode = MODES.includes(req.query.mode) ? req.query.mode : 'posts';

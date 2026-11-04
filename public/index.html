@@ -202,6 +202,7 @@
       <div class="mode-toggle platform-toggle" role="tablist" aria-label="Platform">
         <button class="mode-btn active" id="platform-ig">Instagram</button>
         <button class="mode-btn" id="platform-x">X (Twitter)</button>
+        <a class="mode-btn" id="platform-u" href="/universal.html" style="text-decoration:none">Universal</a>
       </div>
       <div class="mode-toggle" id="ig-modes" role="tablist" aria-label="Scrape mode">
         <button class="mode-btn active" id="mode-posts" data-mode="posts">Posts</button>
@@ -324,6 +325,8 @@
 
   async function init() {
     await loadFields();
+    // coming back from the Universal tab's "X (Twitter)" link (/?tab=x)
+    if (new URLSearchParams(location.search).get('tab') === 'x') setMode('x');
   }
 
   function setMode(next) {

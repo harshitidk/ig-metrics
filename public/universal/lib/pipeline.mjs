@@ -15,7 +15,7 @@ export const TASK_MEM_MB = { ig_post: 1024, ig_profile: 1024, x_post: 512, x_pro
 export const PRICE = { ig_post: { item: 0.0025, run: 0.002 }, ig_profile: { item: 0.0026 }, x_post: { item: 0.00015 }, x_profile: { item: 0.00015 },
   fb_post: { item: 0.005, run: 0.001 }, fb_reel: { item: 0.005 }, fb_profile: { item: 0.012 }, yt_video: { item: 0.0001 }, yt_extra: { item: 0.004 }, yt_profile: { item: 0.008 } };
 const IG_TASKS = new Set(['ig_post', 'ig_profile']);
-export const IG_MAX_PARALLEL = 4;                       // Instagram blocks bursts; default max Instagram runs at once (limits.igMax overrides)
+export const IG_MAX_PARALLEL = 16;                      // max Instagram runs at once (tested 4 vs 16 on 4 Nov 2026: identical data, no extra empty results)
 export const RETRY_WAITS_MS = [20000, 60000, 120000];   // 3 retries after the first try
 const POLL_MS = 2000, POLL_FAIL_MAX = 30, BUSY_WAIT_MS = 30000, BUSY_MAX = 60, RUN_GUARD_MS = 60 * 60 * 1000;
 const NO_DATA = {

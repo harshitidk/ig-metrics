@@ -1,7 +1,9 @@
 // Batch runner (browser + Node). Talks to the server through `api`:
 //   api.start(task, keys)              -> { runIds }
 //   api.result(task, keys, runIds)     -> { state: 'running' } | { state: 'error', error } | { state: 'done', records, unavailable, cost }
-// journal (optional): { get(sig) -> runIds|undefined, set(sig, runIds), del(sig) }  - lets a batch resume without paying twice.
+// journal (optional) remembers every run by the links it fetched, so a resumed batch reuses finished (or still running) runs
+// for any link it already asked for - whatever way the links get grouped this time:
+//   find(task, phase, key) -> entry | null      add(task, phase, keys, runIds) -> entry      drop(entry)
 import { parseLink, PLATFORM_LABEL } from './links.mjs';
 import { assembleRow, profileTarget, verifyAlignment, isoUtc } from './assemble.mjs';
 
@@ -13,9 +15,9 @@ export const TASK_MEM_MB = { ig_post: 1024, ig_profile: 1024, x_post: 512, x_pro
 export const PRICE = { ig_post: { item: 0.0025, run: 0.002 }, ig_profile: { item: 0.0026 }, x_post: { item: 0.00015 }, x_profile: { item: 0.00015 },
   fb_post: { item: 0.005, run: 0.001 }, fb_reel: { item: 0.005 }, fb_profile: { item: 0.012 }, yt_video: { item: 0.0001 }, yt_extra: { item: 0.004 }, yt_profile: { item: 0.008 } };
 const IG_TASKS = new Set(['ig_post', 'ig_profile']);
-export const IG_MAX_PARALLEL = 4;                       // Instagram blocks bursts; never more than 4 Instagram runs at once
+export const IG_MAX_PARALLEL = 4;                       // Instagram blocks bursts; default max Instagram runs at once (limits.igMax overrides)
 export const RETRY_WAITS_MS = [20000, 60000, 120000];   // 3 retries after the first try
-const POLL_MS = 4000, POLL_FAIL_MAX = 30, BUSY_WAIT_MS = 30000, BUSY_MAX = 60, RUN_GUARD_MS = 60 * 60 * 1000;
+const POLL_MS = 2000, POLL_FAIL_MAX = 30, BUSY_WAIT_MS = 30000, BUSY_MAX = 60, RUN_GUARD_MS = 60 * 60 * 1000;
 const NO_DATA = {
   ig_post: 'Instagram: no data after 2 checks (post deleted, private or not public)',
   x_post: 'X: no data after 2 checks (post deleted, protected or not public)',
@@ -29,22 +31,34 @@ const NO_DATA = {
   yt_profile: 'YouTube channel not found',
 };
 const defaultSleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const memoryJournal = () => { const m = new Map(); return { get: (s) => m.get(s), set: (s, v) => m.set(s, v), del: (s) => m.delete(s) }; };
+export function memoryJournal() {
+  const idx = new Map();
+  return {
+    find: (task, phase, k) => (idx.get(`${task}|${phase}`) || []).find((e) => e.keys.includes(k)) || null,
+    add: (task, phase, keys, runIds) => { const e = { task, phase, keys, runIds }; const l = idx.get(`${task}|${phase}`) || []; l.push(e); idx.set(`${task}|${phase}`, l); return e; },
+    drop: (e) => { const l = idx.get(`${e.task}|${e.phase}`) || []; const i = l.indexOf(e); if (i >= 0) l.splice(i, 1); },
+  };
+}
 
-// One shared queue for every Apify run: never more runs / memory than the account allows, max 4 Instagram.
-export function makeQueue({ maxJobs, maxMemMb }) {
+// One shared queue for every Apify run: never more runs / memory than the account allows, limited Instagram.
+export function makeQueue({ maxJobs, maxMemMb, igMax = IG_MAX_PARALLEL }) {
   let jobs = 0, mem = 0, ig = 0, peakJobs = 0, peakIg = 0, peakMem = 0;
   const waiters = [];
-  const fits = (t) => jobs < maxJobs && (mem + TASK_MEM_MB[t] <= maxMemMb || jobs === 0) && (!IG_TASKS.has(t) || ig < IG_MAX_PARALLEL);
+  const fits = (t) => jobs < maxJobs && (mem + TASK_MEM_MB[t] <= maxMemMb || jobs === 0) && (!IG_TASKS.has(t) || ig < igMax);
   const take = (t) => {
     jobs++; mem += TASK_MEM_MB[t]; if (IG_TASKS.has(t)) ig++;
     peakJobs = Math.max(peakJobs, jobs); peakIg = Math.max(peakIg, ig); peakMem = Math.max(peakMem, mem);
   };
+  // waiters are kept in priority order (posts first, then profiles), first come first served inside a priority
   const pump = () => { for (let i = 0; i < waiters.length;) { if (fits(waiters[i].t)) { const w = waiters.splice(i, 1)[0]; take(w.t); w.res(); } else i++; } };
   return {
-    acquire: (t) => new Promise((res) => { if (!waiters.length && fits(t)) { take(t); res(); } else waiters.push({ t, res }); }),
+    acquire: (t, prio = 0) => new Promise((res) => {
+      if (!waiters.some((w) => w.prio <= prio) && fits(t)) { take(t); res(); return; }
+      const at = waiters.findIndex((w) => w.prio > prio);
+      waiters.splice(at < 0 ? waiters.length : at, 0, { t, prio, res });
+    }),
     release: (t) => { jobs--; mem -= TASK_MEM_MB[t]; if (IG_TASKS.has(t)) ig--; pump(); },
-    stats: () => ({ jobs, mem, ig, waiting: waiters.length, peakJobs, peakIg, peakMem, maxJobs, maxMemMb }),
+    stats: () => ({ jobs, mem, ig, waiting: waiters.length, peakJobs, peakIg, peakMem, maxJobs, maxMemMb, igMax }),
   };
 }
 
@@ -70,8 +84,9 @@ export function planBatch(rows, settings) {
     + n('yt_video', u.yt_video.size) + n('yt_extra', u.yt_video.size);
   // profiles: upper bound (X/YouTube creators come free with the post; typed X/YouTube profiles may need a lookup)
   const profiles = n('ig_profile', u.prof.instagram.size) + n('fb_profile', u.prof.facebook.size) + n('x_profile', u.prof.x.size) + n('yt_profile', u.prof.youtube.size);
-  const postCount = u.ig_post.size + u.x_post.size + u.fb_post.size + [...u.fb_reel].filter((x) => !x.startsWith('?')).length + u.yt_video.size;
-  return { posts, profiles, total: posts + profiles, postCount, counts: { instagram: u.ig_post.size, x: u.x_post.size, facebook: u.fb_post.size + [...u.fb_reel].filter((x) => !x.startsWith('?')).length, youtube: u.yt_video.size } };
+  const fbCount = u.fb_post.size + [...u.fb_reel].filter((x) => !x.startsWith('?')).length;
+  return { posts, profiles, total: posts + profiles, postCount: u.ig_post.size + u.x_post.size + fbCount + u.yt_video.size,
+    counts: { instagram: u.ig_post.size, x: u.x_post.size, facebook: fbCount, youtube: u.yt_video.size } };
 }
 
 export async function runBatch({ rows, settings, api, limits = { maxJobs: 4, maxMemMb: 15360 }, journal = memoryJournal(), extractedAt = null,
@@ -79,14 +94,12 @@ export async function runBatch({ rows, settings, api, limits = { maxJobs: 4, max
   const startedAt = Date.now();
   extractedAt = extractedAt || isoUtc(startedAt);
   let cost = 0;
-  const R = {};   // task -> { records, unavailable, failed }
+  const R = {};   // task -> { records, unavailable, failed }  (filled chunk by chunk)
   const on = (pl) => pl && settings.platforms?.[pl] !== false;
   const queue = makeQueue(limits);
 
-  // ── progress (per stage: posts, then profiles) ──
-  // One progress figure for the whole batch. total = estimate made at the start (posts + profiles), made exact when the
-  // profile step starts; pct never goes backwards.
-  const prog = { stage: 'posts', total: 0, done: 0, pct: 0 };
+  // ── progress: one figure for the whole batch, never goes backwards ──
+  const prog = { stage: 'posts', total: 0, registered: 0, done: 0, pct: 0 };
   const report = () => {
     const el = (Date.now() - startedAt) / 1000;
     const total = Math.max(prog.total, prog.done, 1);
@@ -100,7 +113,7 @@ export async function runBatch({ rows, settings, api, limits = { maxJobs: 4, max
   const typedName = (w) => String(w.username || '').trim() || String(w.page_name || '').trim();
   for (const w of work) onRow(w.r, w.post || w.prof || typedName(w) ? 'waiting' : 'empty');
 
-  // ── one Apify run: queue slot, start (or reuse from journal), poll ──
+  // ── one Apify run: queue slot, start (or reuse a saved run), poll ──
   async function startRun(task, keys) {
     for (let busy = 0; ; busy++) {
       try { return (await api.start(task, keys)).runIds; }
@@ -114,35 +127,50 @@ export async function runBatch({ rows, settings, api, limits = { maxJobs: 4, max
       }
     }
   }
-  async function runOnce(task, keys, sig) {
-    await queue.acquire(task);
+  const PROFILE_TASKS = new Set(['ig_profile', 'x_profile', 'fb_profile', 'yt_profile']);
+  async function runOnce(task, phase, keys, entry) {
+    await queue.acquire(task, PROFILE_TASKS.has(task) ? 1 : 0);
     report();
     try {
-      let runIds = journal.get(sig);
-      if (!runIds) { runIds = await startRun(task, keys); journal.set(sig, runIds); }
+      if (!entry) entry = journal.add(task, phase, keys, await startRun(task, keys));
       const t0 = Date.now();
       let pollFails = 0;
       for (;;) {
         await sleep(POLL_MS);
         let res;
-        try { res = await api.result(task, keys, runIds); pollFails = 0; }
+        try { res = await api.result(task, entry.keys, entry.runIds); pollFails = 0; }
         catch (e) { // network gone (laptop asleep, wifi): the Apify run keeps going, so keep waiting for it
           if (++pollFails >= POLL_FAIL_MAX) throw e;
           await sleep(Math.min(60000, 3000 * pollFails)); continue;
         }
         if (res.state === 'done') { cost += Number(res.cost || 0); return res; }
-        if (res.state === 'error') { journal.del(sig); throw new Error(res.error || 'Apify run failed'); }
-        if (Date.now() - t0 > RUN_GUARD_MS) { journal.del(sig); throw new Error('Run did not finish within 60 minutes'); }
+        if (res.state === 'error') { journal.drop(entry); throw new Error(res.error || 'Apify run failed'); }
+        if (Date.now() - t0 > RUN_GUARD_MS) { journal.drop(entry); throw new Error('Run did not finish within 60 minutes'); }
       }
     } finally { queue.release(task); }
+  }
+  // Fetch `keys`: links already in a saved run are read back from that run (no cost); only the rest start a new run.
+  async function fetchKeys(task, phase, keys) {
+    const want = new Set(keys), saved = new Map(), fresh = [];
+    for (const k of keys) {
+      const e = journal.find(task, phase, k);
+      if (e) { if (!saved.has(e)) saved.set(e, []); saved.get(e).push(k); } else fresh.push(k);
+    }
+    const parts = await Promise.all([...[...saved.keys()].map((e) => runOnce(task, phase, e.keys, e)), fresh.length ? runOnce(task, phase, fresh, null) : null]);
+    const out = { records: {}, unavailable: {} };
+    for (const p of parts) {
+      if (!p) continue;
+      for (const [k, v] of Object.entries(p.records || {})) if (want.has(k)) out.records[k] = v;
+      for (const [k, v] of Object.entries(p.unavailable || {})) if (want.has(k)) out.unavailable[k] = v;
+    }
+    return out;
   }
   async function runChunk(task, keys) {
     const out = { records: {}, unavailable: {}, failed: {} };
     let pending = [...keys], retries = 0, phase = 'main';
     for (;;) {
       let res;
-      const sig = `${task}|${phase}|${pending.join(',')}`;
-      try { res = await runOnce(task, pending, sig); }
+      try { res = await fetchKeys(task, phase, pending); }
       catch (e) {
         const msg = String(e?.message || e).slice(0, 300);
         if (retries >= retryWaits.length) { for (const k of pending) out.failed[k] = `${msg} (after ${retries + 1} tries)`; break; }
@@ -150,8 +178,8 @@ export async function runBatch({ rows, settings, api, limits = { maxJobs: 4, max
         await sleep(retryWaits[retries]); retries++;
         continue;
       }
-      Object.assign(out.records, res.records || {});
-      Object.assign(out.unavailable, res.unavailable || {});
+      Object.assign(out.records, res.records);
+      Object.assign(out.unavailable, res.unavailable);
       const missing = pending.filter((k) => !out.records[k] && !out.unavailable[k]);
       if (missing.length && phase === 'main') { // an empty result can mean "overloaded", so check once more before calling it unavailable
         phase = 'recheck'; pending = missing;
@@ -164,21 +192,57 @@ export async function runBatch({ rows, settings, api, limits = { maxJobs: 4, max
     prog.done += keys.length; report();
     return out;
   }
-  async function runTask(task, keys) {
+  // Results go into R chunk by chunk, so later steps can start as soon as their input is ready.
+  async function runTask(task, keys, onChunk) {
     keys = [...new Set(keys.filter((k) => k != null && k !== ''))];
     if (!keys.length) return;
+    const merged = (R[task] ||= { records: {}, unavailable: {}, failed: {} });
+    keys = keys.filter((k) => !merged.records[k] && !merged.unavailable[k] && !merged.failed[k]);
+    if (!keys.length) return;
+    prog.registered += keys.length; if (prog.registered > prog.total) prog.total = prog.registered;
     const size = CHUNK[task] || 20, chunks = [];
     for (let i = 0; i < keys.length; i += size) chunks.push(keys.slice(i, i + size));
     report();
     onLog(`${task}: ${keys.length} item(s) in ${chunks.length} run(s)`);
-    const parts = await Promise.all(chunks.map((c) => runChunk(task, c)));   // the shared queue decides how many run at once
-    const merged = R[task] || { records: {}, unavailable: {}, failed: {} };
-    for (const p of parts) { Object.assign(merged.records, p.records); Object.assign(merged.unavailable, p.unavailable); Object.assign(merged.failed, p.failed); }
-    R[task] = merged;
+    await Promise.all(chunks.map(async (c) => {   // the shared queue decides how many run at once
+      const p = await runChunk(task, c);
+      Object.assign(merged.records, p.records); Object.assign(merged.unavailable, p.unavailable); Object.assign(merged.failed, p.failed);
+      if (onChunk) await onChunk(c, p);
+    }));
     onLog(`${task}: ok ${Object.keys(merged.records).length}, not available ${Object.keys(merged.unavailable).length}, failed ${Object.keys(merged.failed).length}`);
   }
 
-  // ── 2. post data ──
+  // ── profiles: started as soon as the account behind a row is known (each profile fetched once) ──
+  // Profiles are collected and started only in full batches while posts are still running (so there are no extra,
+  // smaller runs); whatever is left starts when the posts are done.
+  const asked = {};          // task -> Set of keys already asked for
+  const waiting = {};        // task -> keys collected, not started yet
+  const profJobs = [];
+  function flushProfiles(all) {
+    for (const [task, keys] of Object.entries(waiting)) {
+      const size = CHUNK[task] || 20;
+      while (keys.length >= size || (all && keys.length)) profJobs.push(runTask(task, keys.splice(0, size)));
+    }
+  }
+  function requestProfiles(rowsList) {
+    if (!settings.profile) return;
+    for (const w of rowsList) {
+      const pl = w.prof?.platform || w.post?.platform;
+      if (!on(pl)) continue;
+      const t = profileTarget(w, R);
+      if (!t || !t.task || !on(t.platform)) continue;
+      const s = (asked[t.task] ||= new Set());
+      if (!s.has(t.key)) { s.add(t.key); (waiting[t.task] ||= []).push(t.key); }
+    }
+    flushProfiles(false);
+  }
+  // a typed profile can start right away, unless it may turn out to be the post's own author (X / YouTube give that for free with the post)
+  const startsNow = (w) => w.prof?.kind === 'profile' && on(w.prof.platform) &&
+    (['instagram', 'facebook'].includes(w.prof.platform) || w.post?.kind !== 'post' || w.post.platform !== w.prof.platform || !on(w.post.platform));
+  const rowsOf = (pl, keyOf) => { const m = new Map(); for (const w of work) if (w.post?.kind === 'post' && w.post.platform === pl) { const k = keyOf(w.post); if (!m.has(k)) m.set(k, []); m.get(k).push(w); } return m; };
+  const byChunk = (m) => (c) => requestProfiles(c.flatMap((k) => m.get(k) || []));
+
+  // ── 2. post data (profiles start alongside) ──
   const posts = work.filter((w) => w.post?.kind === 'post' && on(w.post.platform));
   { // estimate of all work, so the bar has one fixed end from the start
     const uniq = (pl) => new Set(posts.filter((w) => w.post.platform === pl).map((w) => w.post.id)).size;
@@ -187,35 +251,47 @@ export async function runBatch({ rows, settings, api, limits = { maxJobs: 4, max
     prog.total = uniq('instagram') + uniq('x') + 2 * uniq('facebook') + 2 * uniq('youtube') + profileGuess;
   }
   for (const w of posts) onRow(w.r, 'running');
+  for (const w of work) if (w.prof?.kind === 'profile' && on(w.prof.platform)) onRow(w.r, 'running');
+  requestProfiles(work.filter(startsNow));
   const ids = (pl, f = () => true) => posts.filter((w) => w.post.platform === pl && f(w.post)).map((w) => w.post.id);
+  const igRows = rowsOf('instagram', (p) => p.id), xRows = rowsOf('x', (p) => p.id), ytRows = rowsOf('youtube', (p) => p.id), fbRows = rowsOf('facebook', (p) => p.id);
   await Promise.all([
-    runTask('ig_post', ids('instagram')),
-    runTask('x_post', ids('x')),
+    runTask('ig_post', ids('instagram'), byChunk(igRows)),
+    runTask('x_post', ids('x'), byChunk(xRows)),
     (async () => {
-      // direct /reel/ links go straight to the reels scraper (cheaper); share and other links are opened by the posts scraper first
-      const direct = posts.filter((w) => w.post.platform === 'facebook' && w.post.directReel).map((w) => w.post.videoId);
-      await runTask('fb_post', ids('facebook', (p) => !p.directReel));
-      const vids = Object.values(R.fb_post?.records || {}).map((r) => r.videoId).filter(Boolean);
-      await runTask('fb_reel', [...direct, ...vids]);
+      // direct /reel/ links go straight to the reels scraper (cheaper); share and other links are opened by the posts scraper first.
+      // Each reel lookup starts as soon as its own posts-scraper batch is done.
+      const reelRows = new Map(), reelJobs = [];
+      const addReel = (vid, w) => { if (!reelRows.has(vid)) reelRows.set(vid, []); reelRows.get(vid).push(w); };
+      for (const w of posts) if (w.post.platform === 'facebook' && w.post.directReel) addReel(w.post.videoId, w);
+      const reelChunk = (c) => requestProfiles(c.flatMap((v) => reelRows.get(v) || []));
+      reelJobs.push(runTask('fb_reel', [...reelRows.keys()], reelChunk));
+      await runTask('fb_post', ids('facebook', (p) => !p.directReel), (c, p) => {
+        const vids = [];
+        for (const k of c) {
+          const rec = p.records[k];
+          if (rec?.videoId) {
+            if (!reelRows.has(rec.videoId)) vids.push(rec.videoId); // same reel from two links: fetched once
+            for (const w of fbRows.get(k) || []) addReel(rec.videoId, w);
+          }
+          else requestProfiles(fbRows.get(k) || []); // not a video: the owner is known now
+        }
+        if (vids.length) reelJobs.push(runTask('fb_reel', vids, reelChunk));
+      });
+      for (let i = 0; i < reelJobs.length; i++) await reelJobs[i];
     })(),
     runTask('yt_video', ids('youtube')),
-    runTask('yt_extra', ids('youtube')),
+    runTask('yt_extra', ids('youtube'), byChunk(ytRows)),
   ]);
 
-  // ── 3. profile data (only when the toggle is on) ──
+  // ── 3. any profile not started yet (e.g. a source failed), then wait for all of them ──
   if (settings.profile) {
-    const need = {};
-    for (const w of work) {
-      const pl = w.prof?.platform || w.post?.platform;
-      if (!on(pl)) continue;
-      const t = profileTarget(w, R);
-      if (t && t.task && on(t.platform)) (need[t.task] ||= []).push(t.key);
-    }
     prog.stage = 'profiles';
-    prog.total = prog.done + Object.values(need).reduce((a, k) => a + new Set(k).size, 0); // now exact
+    requestProfiles(work);
+    flushProfiles(true);
+    prog.total = prog.registered; // now exact
     report();
-    for (const w of work) if (w.prof?.kind === 'profile' && on(w.prof.platform)) onRow(w.r, 'running');
-    await Promise.all(Object.entries(need).map(([task, keys]) => runTask(task, keys)));
+    for (let i = 0; i < profJobs.length; i++) await profJobs[i];
   }
 
   // ── 4. build rows + final row check ──

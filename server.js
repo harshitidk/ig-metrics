@@ -697,6 +697,7 @@ function createJob(mode, inputs, selectedFields) {
     remaining: 0,
     usedFallback: false,
     usedComments: false,
+    apifyError: null, // last error Apify returned (shown instead of a vague "no data")
     startedAt: Date.now(),
     timing: null,
     error: null,
@@ -760,7 +761,7 @@ async function processJob(job, inputs, selectedFields) {
         if (!p && !fb && !cm) {
           if (final) {
             status = 'no data';
-            reason = 'no data (private / deleted / unavailable)';
+            reason = job.apifyError ? `Apify error: ${job.apifyError}` : 'no data (private / deleted / unavailable)';
           } else {
             status = 'pending';
             reason = 'waiting for scrape…';
@@ -815,6 +816,7 @@ async function processJob(job, inputs, selectedFields) {
           } catch (err) {
             // Transient actor failure — leave the batch untouched so the retry
             // loop picks it back up instead of killing the whole job.
+            job.apifyError = (err && err.message) || String(err);
             console.warn(
               `Batch scrape failed (${need.length} URL(s)); will retry: ` +
                 `${(err && err.message) || err}`
@@ -919,7 +921,7 @@ async function processProfileJob(job, inputs, selectedFields) {
         if (!item) {
           if (final) {
             status = 'no data';
-            reason = 'no data (private / deleted / unavailable)';
+            reason = job.apifyError ? `Apify error: ${job.apifyError}` : 'no data (private / deleted / unavailable)';
           } else {
             status = 'pending';
             reason = 'waiting for scrape…';
@@ -957,6 +959,7 @@ async function processProfileJob(job, inputs, selectedFields) {
             job.costUsd += r.cost;
             buildOutput(false);
           } catch (err) {
+            job.apifyError = (err && err.message) || String(err);
             console.warn(
               `Profile batch scrape failed (${need.length}); will retry: ` +
                 `${(err && err.message) || err}`

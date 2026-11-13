@@ -528,6 +528,13 @@
   function parseUrlTokens() { return els.urls.value.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean); }
 
   function showError(msg) { els.error.textContent = msg; els.error.classList.remove('hidden'); }
+  // Links that failed because Apify itself refused the run (bad/missing token,
+  // credit or usage limit) — say so plainly instead of a vague "no data".
+  function showApifyError(job) {
+    if (job && job.apifyError && job.counts && job.counts.failed > 0) {
+      showError('Apify error — ' + job.counts.failed + ' link(s) could not be scraped: ' + job.apifyError);
+    }
+  }
   function clearError() { els.error.classList.add('hidden'); els.error.textContent = ''; }
 
   function fmtDur(ms) {
@@ -589,6 +596,7 @@
         els.results.classList.remove('hidden');
         applyJob(data);
         setRunning(false);
+        showApifyError(data);
       }
     } catch (e) {
       setRunning(false);
@@ -607,6 +615,7 @@
         stopPolling();
         setRunning(false);
         if (job.status === 'error') showError(job.error || 'Scrape failed.');
+        else showApifyError(job);
       }
     } catch (e) {
       stopPolling();

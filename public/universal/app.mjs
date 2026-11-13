@@ -135,7 +135,7 @@ $('run').onclick = async () => {
   // cost check before spending anything
   const plan = planBatch(rows, st);
   let lim = null;
-  try { lim = await getJSON('/api/u/limits'); } catch (e) { console.error(e); return alert('Could not connect to the scraping account. Please try again in a minute.'); }
+  try { lim = await getJSON('/api/u/limits'); } catch (e) { console.error(e); return alert('Could not connect to the scraping account: ' + ((e && e.message) || 'unknown error') + '. Please try again in a minute.'); }
   const left = lim.monthlyLimitUsd != null && lim.monthlyUsedUsd != null ? lim.monthlyLimitUsd - lim.monthlyUsedUsd : null;
   const parts = [['Instagram', plan.counts.instagram], ['X', plan.counts.x], ['Facebook', plan.counts.facebook], ['YouTube', plan.counts.youtube]].filter(([, n]) => n).map(([k, n]) => `${k} ${n}`).join(', ');
   const msg = [`${rows.length} rows${parts ? ` (posts: ${parts})` : ''}.`,

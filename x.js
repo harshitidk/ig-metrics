@@ -143,7 +143,7 @@ module.exports = function createXMode({ runActorWithInput, getPath, formatValue,
           const item = byId.get(it.id);
           if (!item) {
             status = final ? 'no data' : 'pending';
-            reason = final ? 'no data (deleted / protected / unavailable)' : 'waiting for scrape…';
+            reason = !final ? 'waiting for scrape…' : job.apifyError ? `Apify error: ${job.apifyError}` : 'no data (deleted / protected / unavailable)';
           } else {
             if (it.duplicate) status = 'duplicate';
             for (const f of selectedFields) row[f.label] = resolveXField(f, item);
@@ -167,6 +167,7 @@ module.exports = function createXMode({ runActorWithInput, getPath, formatValue,
           for (const item of items || []) if (item && item.id != null) byId.set(String(item.id), item);
           job.costUsd += cost || 0;
         } catch (err) {
+          job.apifyError = (err && err.message) || String(err);
           console.warn(`X batch failed (${batch.length}); will retry: ${(err && err.message) || err}`);
         }
         if (round === 0) job.batchesDone = Math.min(job.batchesDone + 1, job.batchesTotal);

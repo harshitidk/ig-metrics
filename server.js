@@ -42,6 +42,12 @@ const CONFIG = {
   PROFILE_MATCH_KEY: 'username', // results are matched back to inputs by username
   PROFILE_ENABLED: true,
   PROFILE_INCLUDE_ABOUT: false, // true = paid "about" add-on (join date, country, username-change count)
+  // Reel scraper for "Avg views (last 5 reels)": the profile scraper gives no
+  // view counts. We fetch 8 per profile (5 + up to 3 pinned, which come first
+  // but are often old) and average the 5 newest by date. ~$0.0026 per reel.
+  // Runs only when that field is selected.
+  REELS_ACTOR_ID: 'apify/instagram-reel-scraper',
+  REELS_PER_PROFILE: 8,
 
   // How many input links to send per actor run. Larger batches mean fewer
   // actor-start charges and let the actor pace its own requests (Instagram
@@ -197,6 +203,8 @@ const FIELD_CATALOG = [
 // (dot-separated) into the profile-scraper item instead of primary/fallback/
 // comments. Paths verified against the live actor sample output (NASA).
 // ─────────────────────────────────────────────────────────────────────────────
+const creatorStats = require('./creator-stats');
+
 const PROFILE_FIELD_CATALOG = [
   // ── Identity ─────────────────────────────────────────────────────────
   { key: 'username',       label: 'Username',          group: 'Identity', bucket: 'recommended', type: 'text',   default: true,  path: 'username' },
@@ -214,11 +222,17 @@ const PROFILE_FIELD_CATALOG = [
   { key: 'highlights',     label: 'Highlights',        group: 'Metrics',  bucket: 'advanced',    type: 'number', default: false, path: 'highlightReelCount' },
   { key: 'igtvVideos',     label: 'IGTV videos',       group: 'Metrics',  bucket: 'advanced',    type: 'number', default: false, path: 'igtvVideoCount' },
 
+  // ── Creator stats (computed) ─────────────────────────────────────────
+  { key: 'avgViews',       label: 'Avg views (last 5 reels)', group: 'Creator stats', bucket: 'recommended', type: 'number', default: false, derive: 'avgViews', needsReels: true }, // extra reel-scraper run
+  { key: 'engagementRate', label: 'Engagement rate (%)',      group: 'Creator stats', bucket: 'recommended', type: 'decimal', default: false, derive: 'engagementRate' }, // (avg likes + avg comments) / followers x 100, 5 newest reels
+  { key: 'language',       label: 'Language',                 group: 'Creator stats', bucket: 'recommended', type: 'text',   default: false, derive: 'language' }, // from bio + captions, approximate
+  { key: 'niche',          label: 'Content niche',            group: 'Creator stats', bucket: 'recommended', type: 'text',   default: false, derive: 'niche' }, // from bio + captions + hashtags, approximate
+
   // ── Status / classification ──────────────────────────────────────────
   { key: 'isVerified',     label: 'Verified',          group: 'Status',   bucket: 'recommended', type: 'bool',   default: false, path: 'verified' },
   { key: 'isPrivate',      label: 'Private',           group: 'Status',   bucket: 'recommended', type: 'bool',   default: false, path: 'private' },
   { key: 'isBusiness',     label: 'Business account',  group: 'Status',   bucket: 'advanced',    type: 'bool',   default: false, path: 'isBusinessAccount' },
-  { key: 'category',       label: 'Business category', group: 'Status',   bucket: 'advanced',    type: 'text',   default: false, path: 'businessCategoryName' },
+  { key: 'category',       label: 'Category',          group: 'Creator stats', bucket: 'recommended', type: 'text', default: false, path: 'businessCategoryName' }, // Instagram's own label; blank when the creator set none
   { key: 'joinedRecently', label: 'Recently joined',   group: 'Status',   bucket: 'advanced',    type: 'bool',   default: false, path: 'joinedRecently' },
   { key: 'hasChannel',     label: 'Has channel',       group: 'Status',   bucket: 'advanced',    type: 'bool',   default: false, path: 'hasChannel' },
 
@@ -420,6 +434,7 @@ function formatBool(v) {
 function formatValue(field, v) {
   switch (field.type) {
     case 'number':   return formatNumber(v);
+    case 'decimal':  return v == null || v === '' || !Number.isFinite(Number(v)) ? '' : Math.round(Number(v) * 100) / 100;
     case 'datetime': return formatDatetime(v);
     case 'date':     return formatDate(v);
     case 'text':     return formatText(v);
@@ -858,10 +873,29 @@ async function processJob(job, inputs, selectedFields) {
 // fallback/comments actors.
 // ─────────────────────────────────────────────────────────────────────────────
 
-function resolveProfileField(field, item) {
+function resolveProfileField(field, item, reels) {
   if (!item) return '';
+  if (field.derive) {
+    const fn = creatorStats[field.derive];
+    const v = fn ? fn(item, reels) : '';
+    return v === '' || v == null ? '' : formatValue(field, v);
+  }
   const v = getPath(item, field.path);
   return formatValue(field, v);
+}
+
+// Last few reels per username (for Avg views / engagement). Every requested
+// username gets an entry (empty when the account has no public reels) so the
+// retry loop only re-runs batches whose actor run actually failed.
+async function scrapeReels(usernames) {
+  const input = { username: usernames, resultsLimit: CONFIG.REELS_PER_PROFILE };
+  const { items, cost } = await runActorWithInput(CONFIG.REELS_ACTOR_ID, input);
+  const map = new Map(usernames.map((u) => [u.toLowerCase(), []]));
+  for (const item of items || []) {
+    const u = String(item.ownerUsername || item.username || '').toLowerCase();
+    if (!item.error && map.has(u)) map.get(u).push(item);
+  }
+  return { map, cost };
 }
 
 async function scrapeProfiles(keys) {
@@ -880,6 +914,8 @@ async function scrapeProfiles(keys) {
 async function processProfileJob(job, inputs, selectedFields) {
   if (!job) return;
   const profileMap = new Map();
+  const reelsMap = new Map(); // matchKey -> reel items (only when a field needs reels)
+  const needReels = selectedFields.some((f) => f.needsReels);
   const batchSize = Math.max(1, CONFIG.BATCH_SIZE);
 
   // Unique valid profiles to scrape (first occurrence of each username/id).
@@ -892,7 +928,12 @@ async function processProfileJob(job, inputs, selectedFields) {
     toScrape.push({ value: it.key.username || it.key.id, matchKey: it.matchKey });
   }
 
-  const isMissing = (k) => !profileMap.has(k.matchKey);
+  // Private accounts have no public reels, so they never wait on the reel run.
+  const wantsReels = (k) => {
+    const p = profileMap.get(k.matchKey);
+    return needReels && p && !p.error && !p.private && p.username && !reelsMap.has(k.matchKey);
+  };
+  const isMissing = (k) => !profileMap.has(k.matchKey) || wantsReels(k);
 
   const maxRounds = CONFIG.RETRY_ENABLED ? Math.max(1, CONFIG.RETRY_MAX_ROUNDS) : 1;
 
@@ -917,9 +958,14 @@ async function processProfileJob(job, inputs, selectedFields) {
         status = 'invalid';
         reason = 'unsupported input (not an Instagram username/URL/ID)';
       } else {
-        const item = profileMap.get(it.matchKey);
+        const found = profileMap.get(it.matchKey);
+        // The profile scraper returns an { error: 'not_found' } row for missing accounts.
+        const item = found && found.error ? null : found;
         if (!item) {
-          if (final) {
+          if (final && found && found.error) {
+            status = 'no data';
+            reason = `not found on Instagram (${found.error})`;
+          } else if (final) {
             status = 'no data';
             reason = job.apifyError ? `Apify error: ${job.apifyError}` : 'no data (private / deleted / unavailable)';
           } else {
@@ -930,7 +976,7 @@ async function processProfileJob(job, inputs, selectedFields) {
           status = 'duplicate';
         }
         if (status === 'ok' || status === 'duplicate') {
-          for (const f of selectedFields) row[f.label] = resolveProfileField(f, item);
+          for (const f of selectedFields) row[f.label] = resolveProfileField(f, item, reelsMap.get(it.matchKey));
         }
       }
       job.rows.push(row);
@@ -954,10 +1000,22 @@ async function processProfileJob(job, inputs, selectedFields) {
         const need = batch.filter(isMissing);
         if (need.length > 0) {
           try {
-            const r = await scrapeProfiles(need);
-            for (const [k, item] of r.map) if (!profileMap.has(k)) profileMap.set(k, item);
-            job.costUsd += r.cost;
-            buildOutput(false);
+            const needProfile = need.filter((k) => !profileMap.has(k.matchKey));
+            if (needProfile.length) {
+              const r = await scrapeProfiles(needProfile);
+              for (const [k, item] of r.map) if (!profileMap.has(k)) profileMap.set(k, item);
+              job.costUsd += r.cost;
+              buildOutput(false);
+            }
+            const needR = need.filter(wantsReels);
+            if (needR.length) {
+              const r = await scrapeReels(needR.map((k) => String(profileMap.get(k.matchKey).username)));
+              for (const k of needR) {
+                reelsMap.set(k.matchKey, r.map.get(String(profileMap.get(k.matchKey).username).toLowerCase()) || []);
+              }
+              job.costUsd += r.cost;
+              buildOutput(false);
+            }
           } catch (err) {
             job.apifyError = (err && err.message) || String(err);
             console.warn(

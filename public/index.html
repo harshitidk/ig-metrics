@@ -402,6 +402,12 @@
       badge.textContent = 'reel scraper';
       badge.title = 'selecting this runs the second scraper over all URLs (extra Apify cost)';
       label.appendChild(badge);
+    } else if (f.needsReels) {
+      const badge = document.createElement('span');
+      badge.className = 'badge';
+      badge.textContent = 'reel scraper';
+      badge.title = 'selecting this runs the reel scraper for each profile (8 reels, about $0.02 per profile extra)';
+      label.appendChild(badge);
     } else if (f.group === 'About') {
       const badge = document.createElement('span');
       badge.className = 'badge';
